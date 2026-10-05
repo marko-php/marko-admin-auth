@@ -94,7 +94,9 @@ readonly class AdminUserProvider implements UserProviderInterface
             return null;
         }
 
-        if ($user->getRememberToken() !== $token) {
+        $storedToken = $user->getRememberToken();
+
+        if ($storedToken === null || !hash_equals($storedToken, $token)) {
             return null;
         }
 

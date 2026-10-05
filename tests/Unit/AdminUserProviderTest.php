@@ -292,6 +292,22 @@ it('retrieves user by remember token via retrieveByRememberToken', function (): 
         ->and($result->getRememberToken())->toBe('valid_token_123');
 });
 
+it('returns null from retrieveByRememberToken when the stored token does not match', function (): void {
+    $user = createTestAdminUser(rememberToken: 'valid_token_123');
+
+    $provider = new AdminUserProvider(createMockUserRepo(findReturn: $user), createMockRoleRepo(), createMockHasher());
+
+    expect($provider->retrieveByRememberToken(1, 'forged_token'))->toBeNull();
+});
+
+it('returns null from retrieveByRememberToken when the user has no stored token', function (): void {
+    $user = createTestAdminUser();
+
+    $provider = new AdminUserProvider(createMockUserRepo(findReturn: $user), createMockRoleRepo(), createMockHasher());
+
+    expect($provider->retrieveByRememberToken(1, ''))->toBeNull();
+});
+
 it('updates remember token via updateRememberToken', function (): void {
     $user = createTestAdminUser();
 
