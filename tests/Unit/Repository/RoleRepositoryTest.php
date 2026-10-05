@@ -460,6 +460,15 @@ function createRoleTransactionalConnectionWithHistory(
         {
             return null;
         }
+
+        public function transactionLevel(): int
+        {
+            return 0;
+        }
+
+        public function afterCommit(callable $callback): void {}
+
+        public function afterRollback(callable $callback): void {}
     };
 }
 
