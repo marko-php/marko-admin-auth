@@ -81,6 +81,25 @@ readonly class AdminUserProvider implements UserProviderInterface
         return $this->passwordHasher->verify($password, $user->getAuthPassword());
     }
 
+    public function rehashPasswordIfNeeded(
+        AuthenticatableInterface $user,
+        array $credentials,
+    ): void {
+        $password = $this->passwordFrom($credentials);
+
+        if (
+            !$user instanceof AdminUser
+            || $password === null
+            || !$this->passwordHasher->needsRehash($user->getAuthPassword())
+        ) {
+            return;
+        }
+
+        $user->password = $this->passwordHasher->hash($password);
+
+        $this->userRepository->save($user);
+    }
+
     /**
      * @param array<string, mixed> $credentials
      */
