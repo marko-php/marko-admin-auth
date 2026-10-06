@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Marko\AdminAuth\AdminUserProvider;
 use Marko\AdminAuth\Config\AdminAuthConfig;
 use Marko\AdminAuth\Config\AdminAuthConfigInterface;
+use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
+use Marko\AdminAuth\PermissionRegistry;
 use Marko\AdminAuth\Repository\AdminUserRepository;
 use Marko\AdminAuth\Repository\AdminUserRepositoryInterface;
 use Marko\AdminAuth\Repository\PermissionRepository;
@@ -28,5 +30,9 @@ return [
                 passwordHasher: $container->get(PasswordHasherInterface::class),
             );
         },
+    ],
+    'singletons' => [
+        // Shared: permissions registered through one injected registry must be visible to every consumer.
+        PermissionRegistryInterface::class => PermissionRegistry::class,
     ],
 ];

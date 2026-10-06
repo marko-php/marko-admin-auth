@@ -20,23 +20,19 @@ readonly class PermissionDiscovery
      * Discover permissions from AdminPermission attributes on an AdminSection class.
      *
      * @param class-string $className
+     * @throws AdminException|ReflectionException
      */
     public function discoverFromClass(
         string $className,
     ): void {
-        try {
-            $definition = $this->sectionDiscovery->parseAdminSectionClass($className);
+        $definition = $this->sectionDiscovery->parseAdminSectionClass($className);
 
-            foreach ($definition->permissions as $permission) {
-                $group = $this->deriveGroup($permission->id);
-
-                $this->registry->register(
-                    key: $permission->id,
-                    label: $permission->label,
-                    group: $group,
-                );
-            }
-        } catch (AdminException|ReflectionException) {
+        foreach ($definition->permissions as $permission) {
+            $this->registry->register(
+                key: $permission->id,
+                label: $permission->label,
+                group: $this->deriveGroup($permission->id),
+            );
         }
     }
 
