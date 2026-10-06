@@ -487,8 +487,9 @@ function createRoleSavepointConnection(
             return $statement->rowCount();
         }
 
-        public function prepare(string $sql): StatementInterface
-        {
+        public function prepare(
+            string $sql,
+        ): StatementInterface {
             throw new RuntimeException('Not implemented');
         }
 
@@ -545,8 +546,10 @@ function createRoleSavepointConnection(
             return $this->level > 0;
         }
 
-        public function transaction(callable $callback): mixed
-        {
+        public function transaction(
+            callable $callback,
+            int $attempts = 1,
+        ): mixed {
             $this->beginTransaction();
 
             try {
