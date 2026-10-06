@@ -26,15 +26,13 @@ use Marko\Authentication\Contracts\UserProviderInterface;
 use Marko\Core\Event\Event;
 use Marko\Testing\Fake\FakeConfigRepository;
 
-it('creates AdminAuthConfig with guard name and super admin role slug', function (): void {
+it('creates AdminAuthConfig with the admin guard name', function (): void {
     $config = new AdminAuthConfig(new FakeConfigRepository([
         'admin-auth.guard' => 'admin',
-        'admin-auth.super_admin_role' => 'super-admin',
     ]));
 
     expect($config)->toBeInstanceOf(AdminAuthConfigInterface::class)
-        ->and($config->getGuardName())->toBe('admin')
-        ->and($config->getSuperAdminRoleSlug())->toBe('super-admin');
+        ->and($config->getGuardName())->toBe('admin');
 });
 
 it('binds AdminUserRepositoryInterface to AdminUserRepository in module.php', function (): void {
@@ -160,9 +158,7 @@ it('has valid config/admin-auth.php with default values', function (): void {
     expect(file_exists($configPath))->toBeTrue()
         ->and($configData)->toBeArray()
         ->and($configData)->toHaveKey('guard')
-        ->and($configData)->toHaveKey('super_admin_role')
-        ->and($configData['guard'])->toBe('admin')
-        ->and($configData['super_admin_role'])->toBe('super-admin');
+        ->and($configData)->toBe(['guard' => 'admin']);
 });
 
 it('has module.php with all required bindings', function (): void {

@@ -20,12 +20,4 @@ readonly class AdminAuthConfig implements AdminAuthConfigInterface
     {
         return $this->config->getString('admin-auth.guard');
     }
-
-    /**
-     * @throws ConfigNotFoundException
-     */
-    public function getSuperAdminRoleSlug(): string
-    {
-        return $this->config->getString('admin-auth.super_admin_role');
-    }
 }
