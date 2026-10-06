@@ -257,7 +257,9 @@ it('stamps AdminUserCreated and AdminUserUpdated with the repository\'s current 
     $existing->email = 'admin@example.com';
     $existing->password = 'hashed_password';
     $existing->name = 'Admin Updated';
-    createClockedAdminUserRepository($clock, createEventMockConnection(isNew: false), $updateDispatcher)->save($existing);
+    createClockedAdminUserRepository($clock, createEventMockConnection(isNew: false), $updateDispatcher)->save(
+        $existing,
+    );
 
     expect(findDispatchedEvent($createDispatcher, AdminUserCreated::class)->getTimestamp())->toEqual($createdAt)
         ->and(findDispatchedEvent($updateDispatcher, AdminUserUpdated::class)->getTimestamp())->toEqual($clock->now());
@@ -278,7 +280,13 @@ function createClockedRoleRepository(
             ConnectionInterface $connection,
             FakeEventDispatcher $eventDispatcher,
         ) {
-            parent::__construct($connection, new EntityMetadataFactory(), new EntityHydrator(), null, $eventDispatcher);
+            parent::__construct(
+                $connection,
+                new EntityMetadataFactory(),
+                new EntityHydrator(),
+                null,
+                $eventDispatcher,
+            );
         }
 
         protected function now(): DateTimeImmutable
@@ -303,7 +311,13 @@ function createClockedAdminUserRepository(
             ConnectionInterface $connection,
             FakeEventDispatcher $eventDispatcher,
         ) {
-            parent::__construct($connection, new EntityMetadataFactory(), new EntityHydrator(), null, $eventDispatcher);
+            parent::__construct(
+                $connection,
+                new EntityMetadataFactory(),
+                new EntityHydrator(),
+                null,
+                $eventDispatcher,
+            );
         }
 
         protected function now(): DateTimeImmutable
