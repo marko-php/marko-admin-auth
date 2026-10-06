@@ -49,17 +49,13 @@ readonly class AdminUserProvider implements UserProviderInterface
     ): ?AuthenticatableInterface {
         $email = $credentials['email'] ?? null;
 
-        if ($email === null) {
-            return null;
-        }
+        // Credentials come straight from request input: `email[]=x` is a failed login, not a TypeError
+        $user = is_string($email) ? $this->userRepository->findByEmail($email) : null;
 
-        $user = $this->userRepository->findByEmail($email);
+        if ($user === null || $user->isActive !== '1') {
+            // Pay for a password check anyway, so response timing does not reveal which accounts exist
+            $this->passwordHasher->verifyDummy($this->passwordFrom($credentials) ?? '');
 
-        if ($user === null) {
-            return null;
-        }
-
-        if ($user->isActive !== '1') {
             return null;
         }
 
@@ -72,9 +68,27 @@ readonly class AdminUserProvider implements UserProviderInterface
         AuthenticatableInterface $user,
         array $credentials,
     ): bool {
-        $password = $credentials['password'] ?? '';
+        $password = $this->passwordFrom($credentials);
+
+        if ($password === null) {
+            // Same cost as a real check, so a malformed password does not single out existing accounts
+            $this->passwordHasher->verifyDummy('');
+
+            return false;
+        }
 
         return $this->passwordHasher->verify($password, $user->getAuthPassword());
+    }
+
+    /**
+     * @param array<string, mixed> $credentials
+     */
+    private function passwordFrom(
+        array $credentials,
+    ): ?string {
+        $password = $credentials['password'] ?? null;
+
+        return is_string($password) ? $password : null;
     }
 
     /**

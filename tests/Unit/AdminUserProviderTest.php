@@ -12,8 +12,10 @@ use Marko\AdminAuth\Repository\AdminUserRepositoryInterface;
 use Marko\AdminAuth\Repository\RoleRepositoryInterface;
 use Marko\Authentication\Contracts\PasswordHasherInterface;
 use Marko\Authentication\Contracts\UserProviderInterface;
+use Marko\Authentication\Guard\SessionGuard;
 use Marko\Database\Entity\Entity;
 use Marko\Database\Entity\EntityCollection;
+use Marko\Session\Contracts\SessionInterface;
 use ReflectionClass;
 use RuntimeException;
 
@@ -118,6 +120,55 @@ class TrackingRoleRepo implements RoleRepositoryInterface
     public function insertBatch(array $entities): void {}
 }
 
+/**
+ * Spy hasher: records every real and dummy verification so tests can prove each login path does
+ * exactly one password check.
+ */
+class SpyPasswordHasher implements PasswordHasherInterface
+{
+    /** @var array<int, string> */
+    public array $verifiedPasswords = [];
+
+    /** @var array<int, string> */
+    public array $dummyVerifiedPasswords = [];
+
+    public function __construct(
+        private readonly bool $verifyReturn = false,
+    ) {}
+
+    public function hash(
+        string $password,
+    ): string {
+        return 'hashed_' . $password;
+    }
+
+    public function verify(
+        string $password,
+        string $hash,
+    ): bool {
+        $this->verifiedPasswords[] = $password;
+
+        return $this->verifyReturn;
+    }
+
+    public function needsRehash(
+        string $hash,
+    ): bool {
+        return false;
+    }
+
+    public function verifyDummy(
+        string $password,
+    ): void {
+        $this->dummyVerifiedPasswords[] = $password;
+    }
+
+    public function checkCount(): int
+    {
+        return count($this->verifiedPasswords) + count($this->dummyVerifiedPasswords);
+    }
+}
+
 it('implements UserProviderInterface', function (): void {
     $reflection = new ReflectionClass(AdminUserProvider::class);
 
@@ -220,6 +271,111 @@ it('returns false from validateCredentials when password is wrong', function ():
     $result = $provider->validateCredentials($user, ['password' => 'wrong_password']);
 
     expect($result)->toBeFalse();
+});
+
+it('runs a dummy password check when the email is unknown', function (): void {
+    $hasher = new SpyPasswordHasher();
+    $provider = new AdminUserProvider(createMockUserRepo(), createMockRoleRepo(), $hasher);
+
+    $result = $provider->retrieveByCredentials(['email' => 'nobody@example.com', 'password' => 'guess']);
+
+    expect($result)->toBeNull()
+        ->and($hasher->dummyVerifiedPasswords)->toBe(['guess'])
+        ->and($hasher->verifiedPasswords)->toBe([]);
+});
+
+it('runs a dummy password check when the user is inactive', function (): void {
+    $hasher = new SpyPasswordHasher();
+    $userRepo = createMockUserRepo(findByEmailReturn: createTestAdminUser(isActive: '0'));
+    $provider = new AdminUserProvider($userRepo, createMockRoleRepo(), $hasher);
+
+    $result = $provider->retrieveByCredentials(['email' => 'admin@example.com', 'password' => 'guess']);
+
+    expect($result)->toBeNull()
+        ->and($hasher->dummyVerifiedPasswords)->toBe(['guess'])
+        ->and($hasher->verifiedPasswords)->toBe([]);
+});
+
+it('does not run a dummy password check when an active user is found', function (): void {
+    $hasher = new SpyPasswordHasher();
+    $userRepo = createMockUserRepo(findByEmailReturn: createTestAdminUser());
+    $provider = new AdminUserProvider($userRepo, createMockRoleRepo(), $hasher);
+
+    $result = $provider->retrieveByCredentials(['email' => 'admin@example.com', 'password' => 'guess']);
+
+    expect($result)->toBeInstanceOf(AdminUser::class)
+        ->and($hasher->dummyVerifiedPasswords)->toBe([]);
+});
+
+it('performs exactly one password check per failed login whether or not the account exists', function (
+    ?AdminUser $storedUser,
+): void {
+    $hasher = new SpyPasswordHasher(verifyReturn: false);
+    $userRepo = createMockUserRepo(findByEmailReturn: $storedUser);
+    $provider = new AdminUserProvider($userRepo, createMockRoleRepo(), $hasher);
+    $guard = new SessionGuard(test()->createStub(SessionInterface::class), $provider);
+
+    $result = $guard->attempt(['email' => 'admin@example.com', 'password' => 'guess']);
+
+    expect($result)->toBeFalse()
+        ->and($hasher->checkCount())->toBe(1);
+})->with([
+    'unknown email' => [null],
+    'inactive user' => [fn (): AdminUser => createTestAdminUser(isActive: '0')],
+    'active user, wrong password' => [fn (): AdminUser => createTestAdminUser()],
+]);
+
+it('returns null from retrieveByCredentials when the email is not a string', function (
+    mixed $email,
+): void {
+    $hasher = new SpyPasswordHasher();
+    $provider = new AdminUserProvider(createMockUserRepo(), createMockRoleRepo(), $hasher);
+
+    $result = $provider->retrieveByCredentials(['email' => $email, 'password' => 'guess']);
+
+    expect($result)->toBeNull()
+        ->and($hasher->dummyVerifiedPasswords)->toBe(['guess']);
+})->with([
+    'array' => [['admin@example.com']],
+    'null' => [null],
+    'integer' => [42],
+]);
+
+it('runs the dummy check with an empty password when the password is not a string', function (): void {
+    $hasher = new SpyPasswordHasher();
+    $provider = new AdminUserProvider(createMockUserRepo(), createMockRoleRepo(), $hasher);
+
+    $result = $provider->retrieveByCredentials(['email' => 'nobody@example.com', 'password' => ['guess']]);
+
+    expect($result)->toBeNull()
+        ->and($hasher->dummyVerifiedPasswords)->toBe(['']);
+});
+
+it('returns false from validateCredentials when the password is not a string', function (
+    mixed $password,
+): void {
+    $hasher = new SpyPasswordHasher(verifyReturn: true);
+    $provider = new AdminUserProvider(createMockUserRepo(), createMockRoleRepo(), $hasher);
+
+    $result = $provider->validateCredentials(createTestAdminUser(), ['password' => $password]);
+
+    expect($result)->toBeFalse()
+        ->and($hasher->verifiedPasswords)->toBe([])
+        ->and($hasher->dummyVerifiedPasswords)->toBe(['']);
+})->with([
+    'array' => [['secret']],
+    'null' => [null],
+    'integer' => [123],
+]);
+
+it('rejects array-valued login fields through the guard without a TypeError', function (): void {
+    $hasher = new SpyPasswordHasher(verifyReturn: true);
+    $userRepo = createMockUserRepo(findByEmailReturn: createTestAdminUser());
+    $provider = new AdminUserProvider($userRepo, createMockRoleRepo(), $hasher);
+    $guard = new SessionGuard(test()->createStub(SessionInterface::class), $provider);
+
+    expect($guard->attempt(['email' => ['admin@example.com'], 'password' => 'secret']))->toBeFalse()
+        ->and($guard->attempt(['email' => 'admin@example.com', 'password' => ['secret']]))->toBeFalse();
 });
 
 it('loads roles and permissions when retrieving a user', function (): void {
@@ -674,5 +830,9 @@ function createMockHasher(
         ): bool {
             return false;
         }
+
+        public function verifyDummy(
+            string $password,
+        ): void {}
     };
 }

@@ -29,4 +29,10 @@ readonly class NativePasswordHasher implements PasswordHasherInterface
     ): bool {
         return false;
     }
+
+    public function verifyDummy(
+        string $password,
+    ): void {
+        password_verify($password, '$2y$04$ZxSPF.27pFWWE6Ew0jDzE.HiJNsq8davb61hvjFFesMqHyLDmjNbe');
+    }
 }
