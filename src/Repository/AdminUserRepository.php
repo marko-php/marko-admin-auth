@@ -108,10 +108,12 @@ class AdminUserRepository extends Repository implements AdminUserRepositoryInter
         if ($isNew) {
             $this->eventDispatcher->dispatch(new AdminUserCreated(
                 user: $user,
+                timestamp: $this->now(),
             ));
         } else {
             $this->eventDispatcher->dispatch(new AdminUserUpdated(
                 user: $user,
+                timestamp: $this->now(),
             ));
         }
     }

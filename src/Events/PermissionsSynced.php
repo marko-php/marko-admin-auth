@@ -12,7 +12,7 @@ class PermissionsSynced extends Event
     public function __construct(
         private readonly int $createdCount,
         private readonly int $totalCount,
-        private readonly DateTimeImmutable $timestamp = new DateTimeImmutable(),
+        private readonly DateTimeImmutable $timestamp,
     ) {}
 
     public function getCreatedCount(): int

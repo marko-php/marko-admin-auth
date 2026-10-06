@@ -12,7 +12,7 @@ class RoleCreated extends Event
 {
     public function __construct(
         private readonly RoleInterface $role,
-        private readonly DateTimeImmutable $timestamp = new DateTimeImmutable(),
+        private readonly DateTimeImmutable $timestamp,
     ) {}
 
     public function getRole(): RoleInterface

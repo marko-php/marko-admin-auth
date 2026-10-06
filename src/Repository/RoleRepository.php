@@ -64,6 +64,7 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
 
         $this->eventDispatcher?->dispatch(new RoleDeleted(
             role: $entity,
+            timestamp: $this->now(),
         ));
     }
 
@@ -78,10 +79,12 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
         if ($isNew) {
             $this->eventDispatcher->dispatch(new RoleCreated(
                 role: $role,
+                timestamp: $this->now(),
             ));
         } else {
             $this->eventDispatcher->dispatch(new RoleUpdated(
                 role: $role,
+                timestamp: $this->now(),
             ));
         }
     }

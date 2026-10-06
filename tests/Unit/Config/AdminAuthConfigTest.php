@@ -106,15 +106,16 @@ it('creates RoleCreated, RoleUpdated, RoleDeleted events', function (): void {
     $role->id = 1;
     $role->name = 'Editor';
     $role->slug = 'editor';
+    $timestamp = new DateTimeImmutable('2026-01-01 12:00:00 UTC');
 
-    $created = new RoleCreated(role: $role);
-    $updated = new RoleUpdated(role: $role);
-    $deleted = new RoleDeleted(role: $role);
+    $created = new RoleCreated(role: $role, timestamp: $timestamp);
+    $updated = new RoleUpdated(role: $role, timestamp: $timestamp);
+    $deleted = new RoleDeleted(role: $role, timestamp: $timestamp);
 
     expect($created)->toBeInstanceOf(Event::class)
         ->and($created->getRole())->toBeInstanceOf(RoleInterface::class)
         ->and($created->getRole()->getName())->toBe('Editor')
-        ->and($created->getTimestamp())->toBeInstanceOf(DateTimeImmutable::class)
+        ->and($created->getTimestamp())->toBe($timestamp)
         ->and($updated)->toBeInstanceOf(Event::class)
         ->and($updated->getRole()->getSlug())->toBe('editor')
         ->and($deleted)->toBeInstanceOf(Event::class)
@@ -127,32 +128,35 @@ it('creates AdminUserCreated, AdminUserUpdated, AdminUserDeleted events', functi
     $user->email = 'admin@example.com';
     $user->password = 'hashed';
     $user->name = 'Admin';
+    $timestamp = new DateTimeImmutable('2026-01-01 12:00:00 UTC');
 
-    $created = new AdminUserCreated(user: $user);
-    $updated = new AdminUserUpdated(user: $user);
-    $deleted = new AdminUserDeleted(user: $user);
+    $created = new AdminUserCreated(user: $user, timestamp: $timestamp);
+    $updated = new AdminUserUpdated(user: $user, timestamp: $timestamp);
+    $deleted = new AdminUserDeleted(user: $user, timestamp: $timestamp);
 
     expect($created)->toBeInstanceOf(Event::class)
         ->and($created->getUser())->toBeInstanceOf(AdminUserInterface::class)
         ->and($created->getUser()->getAuthIdentifier())->toBe(1)
-        ->and($created->getTimestamp())->toBeInstanceOf(DateTimeImmutable::class)
+        ->and($created->getTimestamp())->toBe($timestamp)
         ->and($updated)->toBeInstanceOf(Event::class)
         ->and($updated->getUser()->getAuthIdentifier())->toBe(1)
         ->and($deleted)->toBeInstanceOf(Event::class)
         ->and($deleted->getUser())->toBeInstanceOf(AdminUserInterface::class)
-        ->and($deleted->getTimestamp())->toBeInstanceOf(DateTimeImmutable::class);
+        ->and($deleted->getTimestamp())->toBe($timestamp);
 });
 
 it('creates PermissionsSynced event dispatched after registry sync', function (): void {
+    $timestamp = new DateTimeImmutable('2026-01-01 12:00:00 UTC');
     $event = new PermissionsSynced(
         createdCount: 5,
         totalCount: 12,
+        timestamp: $timestamp,
     );
 
     expect($event)->toBeInstanceOf(Event::class)
         ->and($event->getCreatedCount())->toBe(5)
         ->and($event->getTotalCount())->toBe(12)
-        ->and($event->getTimestamp())->toBeInstanceOf(DateTimeImmutable::class);
+        ->and($event->getTimestamp())->toBe($timestamp);
 });
 
 it('has valid config/admin-auth.php with default values', function (): void {

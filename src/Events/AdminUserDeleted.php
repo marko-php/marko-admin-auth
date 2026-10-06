@@ -12,7 +12,7 @@ class AdminUserDeleted extends Event
 {
     public function __construct(
         private readonly AdminUserInterface $user,
-        private readonly DateTimeImmutable $timestamp = new DateTimeImmutable(),
+        private readonly DateTimeImmutable $timestamp,
     ) {}
 
     public function getUser(): AdminUserInterface
