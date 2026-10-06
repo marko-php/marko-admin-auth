@@ -197,7 +197,7 @@ it(
             registry: $registry,
             sectionDiscovery: new AdminSectionDiscovery(),
         );
-    
+
         try {
             $discovery->discoverFromClass(DiscoverySectionWithPermissions::class);
             $this->fail('Expected AdminAuthException was not thrown');
@@ -209,7 +209,7 @@ it(
                 ->and($e->getSuggestion())->toContain('Remove the manual PermissionRegistryInterface::register() call')
                 ->and($e->getPrevious())->toBeInstanceOf(AdminAuthException::class);
         }
-    }
+    },
 );
 
 // Test fixture classes
