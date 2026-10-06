@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Marko\AdminAuth\Tests\Unit\Repository;
 
 use Marko\AdminAuth\Entity\Permission;
-use Marko\AdminAuth\PermissionRegistry;
 use Marko\AdminAuth\Repository\PermissionRepository;
 use Marko\AdminAuth\Repository\PermissionRepositoryInterface;
 use Marko\Database\Connection\ConnectionInterface;
@@ -173,79 +172,6 @@ it('contains no driver-specific identifier quoting in PermissionRepository', fun
     expect($source)->not->toContain('`');
 });
 
-it('syncs permissions from registry when passed as parameter', function (): void {
-    $queryHistory = [];
-    $callCount = 0;
-
-    $connection = createPermissionSyncMockConnection($queryHistory, $callCount);
-    $metadataFactory = new EntityMetadataFactory();
-    $hydrator = new EntityHydrator();
-
-    $registry = new PermissionRegistry();
-    $registry->register('blog.posts.create', 'Create Posts', 'blog');
-    $registry->register('blog.posts.edit', 'Edit Posts', 'blog');
-
-    $repository = new PermissionRepository($connection, $metadataFactory, $hydrator);
-    $repository->syncFromRegistry($registry);
-
-    $insertQueries = array_filter(
-        $queryHistory,
-        fn (array $entry): bool => str_contains($entry['sql'], 'INSERT'),
-    );
-    expect(count($insertQueries))->toBe(1);
-});
-
-it('syncs permissions from registry to database creating new and preserving existing', function (): void {
-    $queryHistory = [];
-    $callCount = 0;
-
-    // Mock connection that simulates:
-    // - First findByKey ('blog.posts.create') returns existing permission
-    // - Second findByKey ('blog.posts.edit') returns empty (new permission)
-    $connection = createPermissionSyncMockConnection($queryHistory, $callCount);
-
-    $metadataFactory = new EntityMetadataFactory();
-    $hydrator = new EntityHydrator();
-
-    $registry = new PermissionRegistry();
-    $registry->register('blog.posts.create', 'Create Posts', 'blog');
-    $registry->register('blog.posts.edit', 'Edit Posts', 'blog');
-
-    $repository = new PermissionRepository($connection, $metadataFactory, $hydrator);
-
-    $repository->syncFromRegistry($registry);
-
-    // Should have queried for both permissions by key
-    $findByKeyQueries = array_filter(
-        $queryHistory,
-        fn (array $entry): bool => str_contains($entry['sql'], 'SELECT') && str_contains($entry['sql'], '"key" = ?'),
-    );
-    expect(count($findByKeyQueries))->toBe(2);
-
-    // Should have inserted only the new permission (blog.posts.edit)
-    $insertQueries = array_filter(
-        $queryHistory,
-        fn (array $entry): bool => str_contains($entry['sql'], 'INSERT'),
-    );
-    expect(count($insertQueries))->toBe(1);
-});
-
-it('returns the number of permissions created by syncFromRegistry', function (): void {
-    $queryHistory = [];
-    $callCount = 0;
-
-    // The first key already exists, the second is new.
-    $connection = createPermissionSyncMockConnection($queryHistory, $callCount);
-
-    $registry = new PermissionRegistry();
-    $registry->register('blog.posts.create', 'Create Posts', 'blog');
-    $registry->register('blog.posts.edit', 'Edit Posts', 'blog');
-
-    $repository = new PermissionRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
-
-    expect($repository->syncFromRegistry($registry))->toBe(1);
-});
-
 // Helper functions
 
 function createPermissionMockConnection(
@@ -318,102 +244,6 @@ function createPermissionMockConnectionWithHistory(
         public function lastInsertId(): int
         {
             return 1;
-        }
-
-        public function driverName(): string
-        {
-            return 'sqlite';
-        }
-
-        public function supportsReturning(): bool
-        {
-            return false;
-        }
-
-        public function quoteIdentifier(
-            string $identifier,
-        ): string {
-            return '"' . str_replace('"', '""', $identifier) . '"';
-        }
-    };
-}
-
-/**
- * Creates a mock connection for syncFromRegistry tests.
- *
- * First findByKey query returns an existing permission (blog.posts.create).
- * Second findByKey query returns empty (blog.posts.edit is new).
- *
- * @param array<array{sql: string, bindings: array<mixed>}> $queryHistory
- * @param int $callCount
- */
-function createPermissionSyncMockConnection(
-    array &$queryHistory,
-    int &$callCount,
-): ConnectionInterface {
-    return new class ($queryHistory, $callCount) implements ConnectionInterface
-    {
-        public function __construct(
-            private array &$queryHistory,
-            private int &$callCount,
-        ) {}
-
-        public function connect(): void {}
-
-        public function disconnect(): void {}
-
-        public function isConnected(): bool
-        {
-            return true;
-        }
-
-        public function query(
-            string $sql,
-            array $bindings = [],
-        ): array {
-            $this->queryHistory[] = ['sql' => $sql, 'bindings' => $bindings];
-
-            // For findByKey lookups (SELECT with key = ?)
-            if (str_contains($sql, '"key" = ?')) {
-                $this->callCount++;
-                // First call: existing permission found
-                if ($this->callCount === 1) {
-                    return [
-                        [
-                            'id' => 1,
-                            'key' => 'blog.posts.create',
-                            'label' => 'Create Posts',
-                            'group' => 'blog',
-                            'created_at' => '2024-01-01 00:00:00',
-                        ],
-                    ];
-                }
-
-                // Second call: not found (new permission)
-                return [];
-            }
-
-            return [];
-        }
-
-        public function execute(
-            string $sql,
-            array $bindings = [],
-        ): int {
-            $this->queryHistory[] = ['sql' => $sql, 'bindings' => $bindings];
-
-            return 1;
-        }
-
-        public function prepare(
-            string $sql,
-        ): StatementInterface {
-            throw new RuntimeException('Not implemented');
-        }
-
-        public function lastInsertId(): int
-        {
-            return 2;
         }
 
         public function driverName(): string

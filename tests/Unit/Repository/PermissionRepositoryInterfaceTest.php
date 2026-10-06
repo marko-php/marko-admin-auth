@@ -7,6 +7,7 @@ namespace Marko\AdminAuth\Tests\Unit\Repository;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
 use Marko\AdminAuth\Entity\Permission;
 use Marko\AdminAuth\Repository\PermissionRepositoryInterface;
+use Marko\AdminAuth\Repository\PermissionSyncResult;
 use Marko\Database\Repository\RepositoryInterface;
 use ReflectionClass;
 
@@ -21,6 +22,8 @@ it('extends RepositoryInterface with permission-specific methods', function (): 
         'findByKey',
         'findByGroup',
         'syncFromRegistry',
+        'findUnregistered',
+        'pruneUnregistered',
     ];
 
     foreach ($expectedMethods as $method) {
@@ -67,13 +70,22 @@ it('findByGroup method signature requires string and returns array', function ()
     expect($returnType->getName())->toBe('array');
 });
 
-it('syncFromRegistry method signature returns the number of permissions created', function (): void {
+it('syncFromRegistry method signature returns a PermissionSyncResult', function (): void {
     $reflection = new ReflectionClass(PermissionRepositoryInterface::class);
     $method = $reflection->getMethod('syncFromRegistry');
 
     $returnType = $method->getReturnType();
-    expect($returnType->getName())->toBe('int');
+    expect($returnType->getName())->toBe(PermissionSyncResult::class);
 });
+
+it('findUnregistered and pruneUnregistered take the registry and return arrays', function (string $name): void {
+    $method = new ReflectionClass(PermissionRepositoryInterface::class)->getMethod($name);
+
+    expect($method->getParameters())->toHaveCount(1)
+        ->and($method->getParameters()[0]->getName())->toBe('registry')
+        ->and($method->getParameters()[0]->getType()->getName())->toBe(PermissionRegistryInterface::class)
+        ->and($method->getReturnType()->getName())->toBe('array');
+})->with(['findUnregistered', 'pruneUnregistered']);
 
 it('updates PermissionRepositoryInterface to accept registry parameter', function (): void {
     $reflection = new ReflectionClass(PermissionRepositoryInterface::class);
