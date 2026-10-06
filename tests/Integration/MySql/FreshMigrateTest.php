@@ -80,6 +80,58 @@ describe('db:migrate for marko/admin-auth on MySQL', function (): void {
             ->toBe(['user_id', 'role_id']);
     });
 
+    it('upgrades the tables of the earlier hand-written migrations, adding the pivot id keys', function (): void {
+        $legacy = [
+            'CREATE TABLE roles (id INT UNSIGNED NOT NULL AUTO_INCREMENT, name VARCHAR(255) NOT NULL, '
+            . 'slug VARCHAR(255) NOT NULL, description TEXT NULL, is_super_admin TINYINT(1) NOT NULL DEFAULT 0, '
+            . 'created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, PRIMARY KEY (id), '
+            . 'UNIQUE INDEX idx_roles_slug (slug))',
+            'CREATE TABLE permissions (id INT UNSIGNED NOT NULL AUTO_INCREMENT, `key` VARCHAR(255) NOT NULL, '
+            . 'label VARCHAR(255) NOT NULL, `group` VARCHAR(255) NOT NULL, created_at TIMESTAMP NULL, '
+            . 'PRIMARY KEY (id), UNIQUE INDEX idx_permissions_key (`key`), INDEX idx_permissions_group (`group`))',
+            'CREATE TABLE role_permissions (role_id INT UNSIGNED NOT NULL, permission_id INT UNSIGNED NOT NULL, '
+            . 'UNIQUE INDEX idx_role_permissions_unique (role_id, permission_id), '
+            . 'INDEX idx_role_permissions_permission_id (permission_id), '
+            . 'FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE, '
+            . 'FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE)',
+            'CREATE TABLE admin_users (id INT UNSIGNED NOT NULL AUTO_INCREMENT, email VARCHAR(255) NOT NULL, '
+            . 'password VARCHAR(255) NOT NULL, name VARCHAR(255) NOT NULL, remember_token VARCHAR(255) NULL, '
+            . 'is_active TINYINT(1) NOT NULL DEFAULT 1, created_at TIMESTAMP NULL, updated_at TIMESTAMP NULL, '
+            . 'PRIMARY KEY (id), UNIQUE INDEX idx_admin_users_email (email))',
+            'CREATE TABLE admin_user_roles (user_id INT UNSIGNED NOT NULL, role_id INT UNSIGNED NOT NULL, '
+            . 'UNIQUE INDEX idx_admin_user_roles_unique (user_id, role_id), '
+            . 'INDEX idx_admin_user_roles_role_id (role_id), '
+            . 'FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE CASCADE, '
+            . 'FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE)',
+            "INSERT INTO roles (name, slug) VALUES ('Editor', 'editor')",
+            "INSERT INTO permissions (`key`, label, `group`) VALUES ('blog.view', 'View', 'blog')",
+            'INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 1)',
+            "INSERT INTO admin_users (email, password, name) VALUES ('a@example.com', 'x', 'A')",
+            'INSERT INTO admin_user_roles (user_id, role_id) VALUES (1, 1)',
+        ];
+
+        foreach ($legacy as $sql) {
+            $this->connection->execute($sql);
+        }
+
+        $result = ($this->migrate)();
+        $second = ($this->migrate)();
+        $pivotKey = fn (string $table): array => array_values(array_map(
+            fn ($column): string => $column->name,
+            array_filter($this->introspector->getTable($table)->columns, fn ($column): bool => $column->primaryKey),
+        ));
+
+        expect($result['exitCode'])->toBe(0)
+            ->and($result['output'])->toContain('Applied 5 schema migration(s).')
+            ->and($pivotKey('role_permissions'))->toBe(['id'])
+            ->and($pivotKey('admin_user_roles'))->toBe(['id'])
+            ->and($this->connection->query('SELECT id, role_id, permission_id FROM role_permissions'))
+            ->toEqual([['id' => 1, 'role_id' => 1, 'permission_id' => 1]])
+            ->and($this->connection->query('SELECT id, user_id, role_id FROM admin_user_roles'))
+            ->toEqual([['id' => 1, 'user_id' => 1, 'role_id' => 1]])
+            ->and($second['output'])->toContain('Nothing to migrate.');
+    });
+
     it('reports nothing to migrate on a second run', function (): void {
         ($this->migrate)();
 
