@@ -79,9 +79,9 @@ it('binds AdminUserProvider as factory with password hasher dependency in module
     expect($module['bindings'])->toHaveKey(UserProviderInterface::class)
         ->and($module['bindings'][UserProviderInterface::class])->toBeInstanceOf(Closure::class);
 
-    $userRepository = $this->createMock(AdminUserRepositoryInterface::class);
-    $roleRepository = $this->createMock(RoleRepositoryInterface::class);
-    $passwordHasher = $this->createMock(PasswordHasherInterface::class);
+    $userRepository = $this->createStub(AdminUserRepositoryInterface::class);
+    $roleRepository = $this->createStub(RoleRepositoryInterface::class);
+    $passwordHasher = $this->createStub(PasswordHasherInterface::class);
 
     $container = $this->createMock(ContainerInterface::class);
     $container->expects($this->exactly(3))
