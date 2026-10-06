@@ -121,6 +121,15 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
     }
 
     /**
+     * A table name quoted for the connection's SQL dialect, for the hand-written join and pivot SQL.
+     */
+    private function table(
+        string $name,
+    ): string {
+        return $this->connection->quoteIdentifier($name);
+    }
+
+    /**
      * Find a role by its slug.
      *
      * A slug outside IdentifierFormat::ROLE_SLUG_PATTERN can't be stored, so it returns null without a query
@@ -145,9 +154,9 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
     public function getPermissionsForRole(
         int $roleId,
     ): array {
-        $sql = 'SELECT p.* FROM permissions p
-            INNER JOIN role_permissions rp ON p.id = rp.permission_id
-            WHERE rp.role_id = ?';
+        $sql = "SELECT p.* FROM {$this->table('permissions')} p
+            INNER JOIN {$this->table('role_permissions')} rp ON p.id = rp.permission_id
+            WHERE rp.role_id = ?";
 
         $rows = $this->connection->query($sql, [$roleId]);
 
@@ -178,8 +187,8 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
         }
 
         $placeholders = implode(', ', array_fill(0, count($roleIds), '?'));
-        $sql = "SELECT DISTINCT p.* FROM permissions p
-            INNER JOIN role_permissions rp ON p.id = rp.permission_id
+        $sql = "SELECT DISTINCT p.* FROM {$this->table('permissions')} p
+            INNER JOIN {$this->table('role_permissions')} rp ON p.id = rp.permission_id
             WHERE rp.role_id IN ($placeholders)";
 
         $rows = $this->connection->query($sql, $roleIds);

@@ -43,9 +43,9 @@ class AdminUserRepository extends Repository implements AdminUserRepositoryInter
     public function getRolesForUser(
         int $userId,
     ): array {
-        $sql = 'SELECT r.* FROM roles r
-            INNER JOIN admin_user_roles aur ON r.id = aur.role_id
-            WHERE aur.user_id = ?';
+        $sql = "SELECT r.* FROM {$this->table('roles')} r
+            INNER JOIN {$this->table('admin_user_roles')} aur ON r.id = aur.role_id
+            WHERE aur.user_id = ?";
 
         $rows = $this->connection->query($sql, [$userId]);
 
@@ -148,5 +148,14 @@ class AdminUserRepository extends Repository implements AdminUserRepositoryInter
                 timestamp: $this->now(),
             ));
         }
+    }
+
+    /**
+     * A table name quoted for the connection's SQL dialect, for the hand-written join and pivot SQL.
+     */
+    private function table(
+        string $name,
+    ): string {
+        return $this->connection->quoteIdentifier($name);
     }
 }

@@ -26,9 +26,9 @@ it('deletes the owner\'s rows and inserts the new set in one multi-row statement
 
     ($this->replaceRoles)(1, [10, 20, 30]);
 
-    expect($this->connection->statements('DELETE'))->toBe(['DELETE FROM admin_user_roles WHERE user_id = ?'])
+    expect($this->connection->statements('DELETE'))->toBe(['DELETE FROM "admin_user_roles" WHERE "user_id" = ?'])
         ->and($this->connection->statements('INSERT'))
-        ->toBe(['INSERT INTO admin_user_roles (user_id, role_id) VALUES (?, ?), (?, ?), (?, ?)'])
+        ->toBe(['INSERT INTO "admin_user_roles" ("user_id", "role_id") VALUES (?, ?), (?, ?), (?, ?)'])
         ->and($this->connection->roleIdsForUser(1))->toBe([10, 20, 30])
         ->and($this->connection->roleIdsForUser(2))->toBe([9]);
 });
@@ -62,8 +62,8 @@ it('runs the delete and inserts in one transaction when the connection supports 
 
     expect($this->connection->log)->toBe([
         'BEGIN',
-        'DELETE FROM admin_user_roles WHERE user_id = ?',
-        'INSERT INTO admin_user_roles (user_id, role_id) VALUES (?, ?), (?, ?)',
+        'DELETE FROM "admin_user_roles" WHERE "user_id" = ?',
+        'INSERT INTO "admin_user_roles" ("user_id", "role_id") VALUES (?, ?), (?, ?)',
         'COMMIT',
     ]);
 });
@@ -144,9 +144,9 @@ it('runs the statements directly when the connection does not support transactio
     new PivotSync($connection)->replace('role_permissions', 'role_id', 4, 'permission_id', [7, 8]);
 
     expect($statements)->toBe([
-        ['sql' => 'DELETE FROM role_permissions WHERE role_id = ?', 'bindings' => [4]],
+        ['sql' => 'DELETE FROM "role_permissions" WHERE "role_id" = ?', 'bindings' => [4]],
         [
-            'sql' => 'INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?), (?, ?)',
+            'sql' => 'INSERT INTO "role_permissions" ("role_id", "permission_id") VALUES (?, ?), (?, ?)',
             'bindings' => [4, 7, 4, 8],
         ],
     ]);

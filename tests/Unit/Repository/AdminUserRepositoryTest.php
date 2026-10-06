@@ -230,11 +230,11 @@ it('inserts all new roles in a single multi-row insert', function (): void {
         fn (array $entry): bool => str_contains($entry['sql'], 'INSERT'),
     ));
 
-    expect($queryHistory[0]['sql'])->toBe('DELETE FROM admin_user_roles WHERE user_id = ?')
+    expect($queryHistory[0]['sql'])->toBe('DELETE FROM "admin_user_roles" WHERE "user_id" = ?')
         ->and($queryHistory[0]['bindings'])->toBe([1])
         ->and($inserts)->toHaveCount(1)
         ->and($inserts[0]['sql'])->toBe(
-            'INSERT INTO admin_user_roles (user_id, role_id) VALUES (?, ?), (?, ?), (?, ?)',
+            'INSERT INTO "admin_user_roles" ("user_id", "role_id") VALUES (?, ?), (?, ?), (?, ?)',
         )
         ->and($inserts[0]['bindings'])->toBe([1, 10, 1, 20, 1, 30]);
 });
@@ -247,8 +247,8 @@ it('wraps the delete and insert in one transaction when the connection supports 
 
     expect($connection->log)->toBe([
         'BEGIN',
-        'DELETE FROM admin_user_roles WHERE user_id = ?',
-        'INSERT INTO admin_user_roles (user_id, role_id) VALUES (?, ?), (?, ?)',
+        'DELETE FROM "admin_user_roles" WHERE "user_id" = ?',
+        'INSERT INTO "admin_user_roles" ("user_id", "role_id") VALUES (?, ?), (?, ?)',
         'COMMIT',
     ]);
 });
@@ -257,7 +257,7 @@ it('rolls back and leaves roles unchanged when an insert fails mid-sync', functi
     $connection = new SqlitePermissionConnection();
     $repository = new AdminUserRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
     $repository->syncRoles(1, [1, 2]);
-    $connection->failOn = 'INSERT INTO admin_user_roles';
+    $connection->failOn = 'INSERT INTO "admin_user_roles"';
 
     expect(fn () => $repository->syncRoles(1, [10, 20]))->toThrow(RuntimeException::class)
         ->and($connection->roleIdsForUser(1))->toBe([1, 2])
@@ -280,7 +280,7 @@ it('rolls back only its own changes when it fails inside an outer transaction', 
 
     $connection->beginTransaction();
     $repository->syncRoles(2, [5]);
-    $connection->failOn = 'INSERT INTO admin_user_roles';
+    $connection->failOn = 'INSERT INTO "admin_user_roles"';
 
     try {
         $repository->syncRoles(1, [10, 20]);
@@ -302,7 +302,7 @@ it('lets the outer transaction commit after a failed sync is caught', function (
 
     $connection->beginTransaction();
     $repository->syncRoles(2, [5]);
-    $connection->failOn = 'INSERT INTO admin_user_roles';
+    $connection->failOn = 'INSERT INTO "admin_user_roles"';
 
     try {
         $repository->syncRoles(1, [10, 20]);
@@ -325,10 +325,25 @@ it('still syncs roles when the connection does not support transactions', functi
     $repository->syncRoles(1, [10, 20]);
 
     expect(array_column($queryHistory, 'sql'))->toBe([
-        'DELETE FROM admin_user_roles WHERE user_id = ?',
-        'INSERT INTO admin_user_roles (user_id, role_id) VALUES (?, ?), (?, ?)',
+        'DELETE FROM "admin_user_roles" WHERE "user_id" = ?',
+        'INSERT INTO "admin_user_roles" ("user_id", "role_id") VALUES (?, ?), (?, ?)',
     ]);
 });
+
+it('quotes the pivot and joined tables in admin user role queries', function (): void {
+    $queryHistory = [];
+    $connection = createAdminUserMockConnectionWithHistory([], $queryHistory);
+    $repository = new AdminUserRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
+
+    $repository->getRolesForUser(1);
+    $repository->syncRoles(1, [10]);
+
+    expect($queryHistory)->toHaveCount(3)
+        ->and($queryHistory[0]['sql'])->toContain('FROM "roles" r')
+        ->toContain('INNER JOIN "admin_user_roles" aur ON')
+        ->and($queryHistory[1]['sql'])->toBe('DELETE FROM "admin_user_roles" WHERE "user_id" = ?')
+        ->and($queryHistory[2]['sql'])->toBe('INSERT INTO "admin_user_roles" ("user_id", "role_id") VALUES (?, ?)');
+})->issue(338);
 
 // Helper functions
 

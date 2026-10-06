@@ -238,8 +238,8 @@ it('replaces a role\'s permissions with the new set', function (): void {
 
     $repository->syncPermissions(1, [10, 20, 30]);
 
-    expect($queryHistory[0]['sql'])->toContain('DELETE FROM role_permissions')
-        ->and($queryHistory[0]['sql'])->toContain('role_id = ?')
+    expect($queryHistory[0]['sql'])->toContain('DELETE FROM "role_permissions"')
+        ->and($queryHistory[0]['sql'])->toContain('"role_id" = ?')
         ->and($queryHistory[0]['bindings'])->toBe([1]);
 });
 
@@ -257,7 +257,7 @@ it('clears all permissions when given an empty permission id list', function ():
     $repository->syncPermissions(1, []);
 
     expect($queryHistory)->toHaveCount(1)
-        ->and($queryHistory[0]['sql'])->toContain('DELETE FROM role_permissions')
+        ->and($queryHistory[0]['sql'])->toContain('DELETE FROM "role_permissions"')
         ->and($queryHistory[0]['bindings'])->toBe([1]);
 });
 
@@ -280,9 +280,27 @@ it('inserts all new permissions in a single multi-row insert', function (): void
     ));
 
     expect($insertEntries)->toHaveCount(1)
-        ->and($insertEntries[0]['sql'])->toContain('INSERT INTO role_permissions')
+        ->and($insertEntries[0]['sql'])->toContain('INSERT INTO "role_permissions"')
         ->and($insertEntries[0]['bindings'])->toBe([1, 10, 1, 20, 1, 30]);
 });
+
+it('quotes the pivot and joined tables in role permission queries', function (): void {
+    $queryHistory = [];
+    $connection = createRoleMockConnectionWithHistory([], $queryHistory);
+    $repository = new RoleRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
+
+    $repository->getPermissionsForRole(1);
+    $repository->getPermissionsForRoles([1, 2]);
+    $repository->syncPermissions(1, [10]);
+
+    $sql = array_column($queryHistory, 'sql');
+
+    expect($sql)->toHaveCount(4)
+        ->and($sql[0])->toContain('FROM "permissions" p')->toContain('INNER JOIN "role_permissions" rp ON')
+        ->and($sql[1])->toContain('FROM "permissions" p')->toContain('INNER JOIN "role_permissions" rp ON')
+        ->and($sql[2])->toBe('DELETE FROM "role_permissions" WHERE "role_id" = ?')
+        ->and($sql[3])->toBe('INSERT INTO "role_permissions" ("role_id", "permission_id") VALUES (?, ?)');
+})->issue(338);
 
 it('wraps the delete and insert in one transaction when the connection supports transactions', function (): void {
     $txLog = [];
@@ -305,7 +323,7 @@ it('wraps the delete and insert in one transaction when the connection supports 
 it('rolls back and leaves permissions unchanged when an insert fails mid-sync', function (): void {
     $txLog = [];
     $connection = createRoleSavepointConnection($txLog, failOnPermissionId: 20);
-    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 1), (1, 2)');
+    $connection->execute('INSERT INTO "role_permissions" ("role_id", "permission_id") VALUES (1, 1), (1, 2)');
     $metadataFactory = new EntityMetadataFactory();
     $hydrator = new EntityHydrator();
 
@@ -324,11 +342,11 @@ it('rolls back and leaves permissions unchanged when an insert fails mid-sync', 
 
 it('rolls back only its own changes when it fails inside an outer transaction', function (): void {
     $connection = createRoleSavepointConnection(failOnPermissionId: 20);
-    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 1), (1, 2)');
+    $connection->execute('INSERT INTO "role_permissions" ("role_id", "permission_id") VALUES (1, 1), (1, 2)');
     $repository = new RoleRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
 
     $connection->beginTransaction();
-    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 5)');
+    $connection->execute('INSERT INTO "role_permissions" ("role_id", "permission_id") VALUES (2, 5)');
 
     try {
         $repository->syncPermissions(1, [10, 20]);
@@ -345,11 +363,11 @@ it('rolls back only its own changes when it fails inside an outer transaction', 
 
 it('lets the outer transaction commit after a failed sync is caught', function (): void {
     $connection = createRoleSavepointConnection(failOnPermissionId: 20);
-    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 1), (1, 2)');
+    $connection->execute('INSERT INTO "role_permissions" ("role_id", "permission_id") VALUES (1, 1), (1, 2)');
     $repository = new RoleRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
 
     $connection->beginTransaction();
-    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 5)');
+    $connection->execute('INSERT INTO "role_permissions" ("role_id", "permission_id") VALUES (2, 5)');
 
     try {
         $repository->syncPermissions(1, [10, 20]);

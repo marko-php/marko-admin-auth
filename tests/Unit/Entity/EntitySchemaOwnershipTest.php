@@ -87,7 +87,8 @@ function adminAuthSqlMatches(
 }
 
 it('owns every table named in the repositories raw SQL with an entity', function (): void {
-    $tables = adminAuthSqlMatches('/\b(?:FROM|JOIN|INTO|UPDATE)\s+([a-z_][a-z0-9_]*)\b/');
+    // A table is named bare or through the repositories' quoting helper: FROM {$this->table('roles')}
+    $tables = adminAuthSqlMatches('/\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:\{\$this->table\(\')?([a-z_][a-z0-9_]*)\b/');
 
     expect($tables)->toContain('admin_user_roles', 'role_permissions', 'roles', 'permissions')
         ->and(array_values(array_diff($tables, array_keys(adminAuthEntityTables()))))->toBe([]);

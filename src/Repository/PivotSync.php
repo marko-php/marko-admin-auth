@@ -16,7 +16,8 @@ use Throwable;
  * leaves the owner's previous rows in place. Inside a caller's transaction the replace runs in a savepoint:
  * a failure undoes only its own changes, and the caller can catch it and still commit.
  *
- * Table and column names are interpolated into the SQL, so they must be code constants, never input.
+ * Table and column names are quoted through ConnectionInterface::quoteIdentifier() and interpolated into the
+ * SQL. They must still be code constants, never input.
  *
  * @internal
  */
@@ -39,6 +40,10 @@ class PivotSync
         string $relatedColumn,
         array $relatedIds,
     ): void {
+        $table = $this->connection->quoteIdentifier($table);
+        $ownerColumn = $this->connection->quoteIdentifier($ownerColumn);
+        $relatedColumn = $this->connection->quoteIdentifier($relatedColumn);
+
         $replace = function () use ($table, $ownerColumn, $ownerId, $relatedColumn, $relatedIds): void {
             $this->connection->execute("DELETE FROM $table WHERE $ownerColumn = ?", [$ownerId]);
 
