@@ -8,6 +8,7 @@ use Marko\AdminAuth\AdminUserProvider;
 use Marko\AdminAuth\Entity\AdminUser;
 use Marko\AdminAuth\Entity\AdminUserRole;
 use Marko\AdminAuth\Entity\Permission;
+use Marko\AdminAuth\Entity\RememberToken;
 use Marko\AdminAuth\Entity\Role;
 use Marko\AdminAuth\Entity\RolePermission;
 use Marko\AdminAuth\Repository\AdminUserRepository;
@@ -44,14 +45,21 @@ use Marko\Testing\Fake\FakeConfirmationPrompter;
  * Builds the admin-auth tables on a real server for the PostgreSQL and MySQL/MariaDB integration tests, and the
  * repositories that use them.
  *
- * All five tables are created from their entities, the only source of the admin-auth schema: create() runs the
+ * All six tables are created from their entities, the only source of the admin-auth schema: create() runs the
  * driver's generator over each entity in foreign-key order, and migrate() runs the real db:migrate command in a
  * temporary project that has marko/admin-auth installed, as a fresh install would.
  */
 class AdminAuthSchema
 {
     /** @var list<string> Tables in reverse dependency order, the order they are dropped in */
-    public const array TABLES = ['admin_user_roles', 'role_permissions', 'admin_users', 'roles', 'permissions'];
+    public const array TABLES = [
+        'remember_tokens',
+        'admin_user_roles',
+        'role_permissions',
+        'admin_users',
+        'roles',
+        'permissions',
+    ];
 
     /** @var list<class-string> Entities in foreign-key order, the order they are created in */
     private const array ENTITIES = [
@@ -60,6 +68,7 @@ class AdminAuthSchema
         RolePermission::class,
         AdminUser::class,
         AdminUserRole::class,
+        RememberToken::class,
     ];
 
     public static function drop(

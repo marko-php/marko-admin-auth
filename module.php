@@ -12,8 +12,10 @@ use Marko\AdminAuth\Repository\AdminUserRepository;
 use Marko\AdminAuth\Repository\AdminUserRepositoryInterface;
 use Marko\AdminAuth\Repository\PermissionRepository;
 use Marko\AdminAuth\Repository\PermissionRepositoryInterface;
+use Marko\AdminAuth\Repository\RememberTokenRepository;
 use Marko\AdminAuth\Repository\RoleRepository;
 use Marko\AdminAuth\Repository\RoleRepositoryInterface;
+use Marko\Authentication\Contracts\RememberTokenStorageInterface;
 
 return [
     // No global UserProviderInterface binding: the admin guard gets AdminUserProvider
@@ -24,6 +26,8 @@ return [
         AdminUserRepositoryInterface::class => AdminUserRepository::class,
         RoleRepositoryInterface::class => RoleRepository::class,
         PermissionRepositoryInterface::class => PermissionRepository::class,
+        // Per-device remember-me tokens (remember_tokens table) for every session guard, admin and frontend.
+        RememberTokenStorageInterface::class => RememberTokenRepository::class,
     ],
     'singletons' => [
         // Shared: permissions registered through one injected registry must be visible to every consumer.
