@@ -267,6 +267,60 @@ it('redirects an unauthenticated browser request to the admin login', function (
         ->and($response->headers()['Location'])->toBe('/admin/login');
 });
 
+it(
+    'throws a 401 instead of redirecting an unauthenticated browser request when the admin guard is stateless',
+    function (): void {
+        $middleware = createMiddleware(guard: new StatelessAdminGuard(name: 'admin-api', attemptResult: false));
+
+        $request = (new Request(server: [
+            'REQUEST_METHOD' => 'GET',
+            'REQUEST_URI' => '/admin/api/v1/me',
+            'HTTP_ACCEPT' => 'text/html,application/xhtml+xml',
+        ]))->withRoute(TestControllerWithoutPermission::class, 'index');
+
+        $exception = captureHttpException($middleware, $request);
+
+        expect($exception)->toBeInstanceOf(UnauthenticatedException::class)
+            ->and($exception->getStatusCode())->toBe(401);
+    },
+);
+
+it(
+    "adds the guard's WWW-Authenticate challenge to the browser 401 when the admin guard is stateless",
+    function (): void {
+        $middleware = createMiddleware(guard: new StatelessAdminGuard(name: 'admin-api', attemptResult: false));
+
+        $request = (new Request(server: [
+            'REQUEST_METHOD' => 'GET',
+            'REQUEST_URI' => '/admin/api/v1/me',
+            'HTTP_ACCEPT' => 'text/html,application/xhtml+xml',
+        ]))->withRoute(TestControllerWithoutPermission::class, 'index');
+
+        $exception = captureHttpException($middleware, $request);
+
+        expect($exception->getHeaders())->toBe(['WWW-Authenticate' => 'Bearer']);
+    },
+);
+
+it(
+    'throws a 401 for an unauthenticated request with no Accept header when the admin guard is stateless',
+    function (): void {
+        $middleware = createMiddleware(guard: new StatelessAdminGuard(name: 'admin-api', attemptResult: false));
+
+        // A bare curl/fetch call: no Accept header at all
+        $request = (new Request(server: [
+            'REQUEST_METHOD' => 'GET',
+            'REQUEST_URI' => '/admin/api/v1/sections',
+        ]))->withRoute(TestControllerWithPermission::class, 'create');
+
+        $exception = captureHttpException($middleware, $request);
+
+        expect($exception)->toBeInstanceOf(UnauthenticatedException::class)
+            ->and($exception->getStatusCode())->toBe(401)
+            ->and($exception->getHeaders())->toBe(['WWW-Authenticate' => 'Bearer']);
+    },
+);
+
 it('throws a 401 HttpException for an unauthenticated request asking for a +json type', function (): void {
     $guard = new FakeGuard(name: 'admin', attemptResult: false); // No user
 

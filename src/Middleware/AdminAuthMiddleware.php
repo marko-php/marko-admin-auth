@@ -9,6 +9,7 @@ use Marko\AdminAuth\Attributes\RequiresPermission;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
 use Marko\AdminAuth\Entity\AdminUserInterface;
 use Marko\Authentication\Contracts\GuardInterface;
+use Marko\Authentication\Contracts\StatelessGuardInterface;
 use Marko\Authentication\Exceptions\UnauthenticatedException;
 use Marko\Routing\Exceptions\HttpException;
 use Marko\Routing\Http\Request;
@@ -21,12 +22,14 @@ use ReflectionMethod;
  * Gates admin routes on an authenticated admin user and, when the matched
  * action carries #[RequiresPermission], on that permission.
  *
- * An unauthenticated browser request is redirected to `{prefix}/login`. An
- * unauthenticated request that wants JSON (Request::wantsJson()) gets a 401
- * UnauthenticatedException, which carries the guard's WWW-Authenticate
- * challenge when the guard is stateless, and a user without the required
- * permission gets a 403 HttpException. The routing pipeline renders both
- * through ExceptionRenderer.
+ * An unauthenticated request gets a 401 UnauthenticatedException. The one
+ * exception is a browser request on a stateful guard: it is redirected to
+ * `{prefix}/login`. A stateless guard (StatelessGuardInterface, e.g. the token
+ * guard) never redirects, since its API clients cannot follow a login
+ * redirect, and its 401 carries the guard's WWW-Authenticate challenge. A
+ * request that wants JSON (Request::wantsJson()) never redirects either,
+ * whatever the guard. A user without the required permission gets a 403
+ * HttpException. The routing pipeline renders both through ExceptionRenderer.
  * The required permission is only put in the exception's context for logs,
  * never in the client-facing message.
  */
@@ -46,7 +49,7 @@ readonly class AdminAuthMiddleware implements MiddlewareInterface
         callable $next,
     ): Response {
         if (!$this->guard->check()) {
-            if (!$request->wantsJson()) {
+            if (!$this->guard instanceof StatelessGuardInterface && !$request->wantsJson()) {
                 return Response::redirect($this->adminConfig->getRoutePrefix() . '/login');
             }
 
