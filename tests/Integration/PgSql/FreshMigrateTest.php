@@ -71,7 +71,7 @@ describe('db:migrate for marko/admin-auth on PostgreSQL', function (): void {
         )?->columns;
 
         expect($result['exitCode'])->toBe(0)
-            ->and($result['output'])->toContain('Applied 5 schema migration(s).')
+            ->and($result['output'])->toContain('Applied 6 schema migration(s).')
             ->and($missing)->toBe([])
             ->and($uniqueIndexColumns('role_permissions', 'idx_role_permissions_unique'))
             ->toBe(['role_id', 'permission_id'])
