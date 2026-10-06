@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Marko\AdminAuth;
 
+use DateTimeImmutable;
 use Marko\AdminAuth\Entity\AdminUser;
 use Marko\AdminAuth\Repository\AdminUserRepositoryInterface;
 use Marko\AdminAuth\Repository\RoleRepositoryInterface;
@@ -122,12 +123,14 @@ readonly class AdminUserProvider implements UserProviderInterface
     public function updateRememberToken(
         AuthenticatableInterface $user,
         ?string $token,
+        ?DateTimeImmutable $expiresAt,
     ): void {
         if (!$user instanceof AdminUser) {
             return;
         }
 
         $user->setRememberToken($token);
+        $user->setRememberTokenExpiresAt($expiresAt);
 
         $this->userRepository->save($user);
     }
