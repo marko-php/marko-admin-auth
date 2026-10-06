@@ -6,7 +6,11 @@ namespace Marko\AdminAuth\Attributes;
 
 use Attribute;
 
-#[Attribute(Attribute::TARGET_METHOD)]
+/**
+ * Requires a permission for an admin route. On a controller class it covers
+ * every action; a method-level attribute replaces the class-level one.
+ */
+#[Attribute(Attribute::TARGET_CLASS | Attribute::TARGET_METHOD)]
 readonly class RequiresPermission
 {
     public function __construct(

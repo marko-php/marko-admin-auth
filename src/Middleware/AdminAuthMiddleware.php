@@ -17,12 +17,14 @@ use Marko\Routing\Exceptions\HttpException;
 use Marko\Routing\Http\Request;
 use Marko\Routing\Http\Response;
 use Marko\Routing\Middleware\MiddlewareInterface;
+use ReflectionClass;
 use ReflectionException;
 use ReflectionMethod;
 
 /**
  * Gates admin routes on an authenticated admin user and, when the matched
- * action carries #[RequiresPermission], on that permission.
+ * action or its controller class carries #[RequiresPermission], on that
+ * permission. A method-level attribute replaces a class-level one.
  *
  * The user comes from the admin guard (admin-auth.guard, resolved through
  * AuthManager), never the app's default guard, so a frontend login is not an
@@ -115,6 +117,9 @@ readonly class AdminAuthMiddleware implements MiddlewareInterface
     }
 
     /**
+     * A method-level #[RequiresPermission] replaces a class-level one, the same
+     * precedence #[Can] uses.
+     *
      * @throws ReflectionException
      */
     private function getRequiredPermission(Request $request): ?string
@@ -126,13 +131,12 @@ readonly class AdminAuthMiddleware implements MiddlewareInterface
             return null;
         }
 
-        $reflection = new ReflectionMethod($controller, $action);
-        $attributes = $reflection->getAttributes(RequiresPermission::class);
+        $attributes = new ReflectionMethod($controller, $action)->getAttributes(RequiresPermission::class);
 
-        if (empty($attributes)) {
-            return null;
+        if ($attributes === []) {
+            $attributes = new ReflectionClass($controller)->getAttributes(RequiresPermission::class);
         }
 
-        return $attributes[0]->newInstance()->permission;
+        return $attributes === [] ? null : $attributes[0]->newInstance()->permission;
     }
 }

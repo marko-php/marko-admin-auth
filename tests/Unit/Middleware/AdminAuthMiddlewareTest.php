@@ -64,6 +64,21 @@ class TestControllerWithWildcardPermission
     }
 }
 
+#[RequiresPermission('settings.manage')]
+class TestControllerWithClassPermission
+{
+    public function index(): Response
+    {
+        return new Response(body: 'index', statusCode: 200);
+    }
+
+    #[RequiresPermission('settings.view')]
+    public function show(): Response
+    {
+        return new Response(body: 'show', statusCode: 200);
+    }
+}
+
 // Simple stub for AdminConfigInterface
 readonly class StubAdminConfig implements AdminConfigInterface
 {
@@ -574,6 +589,54 @@ it(
             ->and($exception->getContext())->toContain("guard 'admin' is not an admin user");
     },
 );
+
+describe('class-level RequiresPermission', function (): void {
+    it('denies an admin lacking the class-level permission on an action with no method attribute', function (): void {
+        $guard = new FakeGuard(name: 'admin', attemptResult: false);
+        $guard->setUser(createAdminUser(roles: [], permissionKeys: ['settings.view']));
+
+        $request = (new Request())->withRoute(TestControllerWithClassPermission::class, 'index');
+
+        $exception = captureHttpException(createMiddleware(guard: $guard), $request);
+
+        expect($exception->getStatusCode())->toBe(403)
+            ->and($exception->getContext())->toContain("'settings.manage'");
+    });
+
+    it('allows an admin holding the class-level permission', function (): void {
+        $guard = new FakeGuard(name: 'admin', attemptResult: false);
+        $guard->setUser(createAdminUser(roles: [], permissionKeys: ['settings.manage']));
+
+        $request = (new Request())->withRoute(TestControllerWithClassPermission::class, 'index');
+
+        $response = createMiddleware(guard: $guard)->handle($request, createSuccessNext());
+
+        expect($response->statusCode())->toBe(200);
+    });
+
+    it('lets a method-level attribute replace the class-level one', function (): void {
+        $guard = new FakeGuard(name: 'admin', attemptResult: false);
+        $guard->setUser(createAdminUser(roles: [], permissionKeys: ['settings.view']));
+
+        $request = (new Request())->withRoute(TestControllerWithClassPermission::class, 'show');
+
+        $response = createMiddleware(guard: $guard)->handle($request, createSuccessNext());
+
+        expect($response->statusCode())->toBe(200);
+    });
+
+    it('denies the class-level permission holder when the method requires another', function (): void {
+        $guard = new FakeGuard(name: 'admin', attemptResult: false);
+        $guard->setUser(createAdminUser(roles: [], permissionKeys: ['settings.manage']));
+
+        $request = (new Request())->withRoute(TestControllerWithClassPermission::class, 'show');
+
+        $exception = captureHttpException(createMiddleware(guard: $guard), $request);
+
+        expect($exception->getStatusCode())->toBe(403)
+            ->and($exception->getContext())->toContain("'settings.view'");
+    });
+});
 
 describe('admin guard resolution through AuthManager', function (): void {
     beforeEach(function (): void {
