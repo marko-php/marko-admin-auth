@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Marko\AdminAuth\Tests\Unit\Middleware;
 
+use DateTimeImmutable;
 use Marko\Admin\Config\AdminConfigInterface;
 use Marko\AdminAuth\AdminGuardResolver;
 use Marko\AdminAuth\Attributes\RequiresPermission;
@@ -554,6 +555,15 @@ it(
             }
 
             public function setRememberToken(?string $token): void {}
+
+            public function getRememberTokenExpiresAt(): ?DateTimeImmutable
+            {
+                return null;
+            }
+
+            public function setRememberTokenExpiresAt(
+                ?DateTimeImmutable $expiresAt,
+            ): void {}
 
             public function getRememberTokenName(): string
             {

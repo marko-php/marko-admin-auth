@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Marko\AdminAuth\Tests\Unit;
 
+use DateTimeImmutable;
 use Marko\AdminAuth\AdminUserProvider;
 use Marko\AdminAuth\Entity\AdminUser;
 use Marko\AdminAuth\Entity\Permission;
@@ -473,9 +474,11 @@ it('updates remember token via updateRememberToken', function (): void {
 
     $provider = new AdminUserProvider($userRepo, $roleRepo, $hasher);
 
-    $provider->updateRememberToken($user, 'new_remember_token');
+    $expiresAt = new DateTimeImmutable('2030-01-01 00:00:00');
+    $provider->updateRememberToken($user, 'new_remember_token', $expiresAt);
 
     expect($user->getRememberToken())->toBe('new_remember_token')
+        ->and($user->getRememberTokenExpiresAt())->toBe($expiresAt)
         ->and($userRepo->saveCallCount)->toBe(1)
         ->and($userRepo->lastSavedUser)->toBe($user);
 });

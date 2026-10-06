@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Marko\AdminAuth\Entity;
 
+use DateTimeImmutable;
 use Marko\Database\Attributes\Column;
 use Marko\Database\Attributes\Table;
 use Marko\Database\Entity\Entity;
@@ -25,6 +26,9 @@ class AdminUser extends Entity implements AdminUserInterface
 
     #[Column]
     public ?string $rememberToken = null;
+
+    #[Column(type: 'datetime')]
+    public ?DateTimeImmutable $rememberTokenExpiresAt = null;
 
     #[Column(default: '1')]
     public string $isActive = '1';
@@ -69,6 +73,17 @@ class AdminUser extends Entity implements AdminUserInterface
         ?string $token,
     ): void {
         $this->rememberToken = $token;
+    }
+
+    public function getRememberTokenExpiresAt(): ?DateTimeImmutable
+    {
+        return $this->rememberTokenExpiresAt;
+    }
+
+    public function setRememberTokenExpiresAt(
+        ?DateTimeImmutable $expiresAt,
+    ): void {
+        $this->rememberTokenExpiresAt = $expiresAt;
     }
 
     public function getRememberTokenName(): string
