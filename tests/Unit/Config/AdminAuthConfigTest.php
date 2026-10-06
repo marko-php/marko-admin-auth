@@ -22,9 +22,7 @@ use Marko\AdminAuth\Repository\PermissionRepository;
 use Marko\AdminAuth\Repository\PermissionRepositoryInterface;
 use Marko\AdminAuth\Repository\RoleRepository;
 use Marko\AdminAuth\Repository\RoleRepositoryInterface;
-use Marko\Authentication\Contracts\PasswordHasherInterface;
 use Marko\Authentication\Contracts\UserProviderInterface;
-use Marko\Core\Container\ContainerInterface;
 use Marko\Core\Event\Event;
 use Marko\Testing\Fake\FakeConfigRepository;
 
@@ -71,34 +69,30 @@ it('binds PermissionRepositoryInterface to PermissionRepository in module.php', 
             ->toBe(PermissionRepository::class);
 });
 
-it('binds AdminUserProvider as factory with password hasher dependency in module.php', function (): void {
-    $modulePath = dirname(__DIR__, 3) . '/module.php';
+it('does not bind the global UserProviderInterface, so the app keeps its own frontend provider', function (): void {
+    $module = require dirname(__DIR__, 3) . '/module.php';
 
-    $module = require $modulePath;
+    expect($module['bindings'])->not->toHaveKey(UserProviderInterface::class);
+});
 
-    expect($module['bindings'])->toHaveKey(UserProviderInterface::class)
-        ->and($module['bindings'][UserProviderInterface::class])->toBeInstanceOf(Closure::class);
+it('ships an admin session guard with its own AdminUserProvider in config/authentication.php', function (): void {
+    $config = require dirname(__DIR__, 3) . '/config/authentication.php';
 
-    $userRepository = $this->createStub(AdminUserRepositoryInterface::class);
-    $roleRepository = $this->createStub(RoleRepositoryInterface::class);
-    $passwordHasher = $this->createStub(PasswordHasherInterface::class);
+    expect($config)->toBe([
+        'guards' => [
+            'admin' => ['driver' => 'session', 'provider' => 'admins'],
+        ],
+        'providers' => [
+            'admins' => ['class' => AdminUserProvider::class],
+        ],
+    ]);
+});
 
-    $container = $this->createMock(ContainerInterface::class);
-    $container->expects($this->exactly(3))
-        ->method('get')
-        ->willReturnCallback(function (string $id) use ($userRepository, $roleRepository, $passwordHasher) {
-            return match ($id) {
-                AdminUserRepositoryInterface::class => $userRepository,
-                RoleRepositoryInterface::class => $roleRepository,
-                PasswordHasherInterface::class => $passwordHasher,
-            };
-        });
+it('names the guard it ships as the admin-auth.guard default', function (): void {
+    $adminAuth = require dirname(__DIR__, 3) . '/config/admin-auth.php';
+    $authentication = require dirname(__DIR__, 3) . '/config/authentication.php';
 
-    $binding = $module['bindings'][UserProviderInterface::class];
-    $result = $binding($container);
-
-    expect($result)->toBeInstanceOf(AdminUserProvider::class)
-        ->and($result)->toBeInstanceOf(UserProviderInterface::class);
+    expect($authentication['guards'])->toHaveKey($adminAuth['guard']);
 });
 
 it('creates RoleCreated, RoleUpdated, RoleDeleted events', function (): void {
@@ -181,7 +175,7 @@ it('has module.php with all required bindings', function (): void {
         ->and($module['bindings'])->toHaveKey(AdminUserRepositoryInterface::class)
         ->and($module['bindings'])->toHaveKey(RoleRepositoryInterface::class)
         ->and($module['bindings'])->toHaveKey(PermissionRepositoryInterface::class)
-        ->and($module['bindings'])->toHaveKey(UserProviderInterface::class)
+        ->and($module['bindings'])->not->toHaveKey(UserProviderInterface::class)
         ->and($module['bindings'])->toHaveKey(AdminAuthConfigInterface::class)
         ->and($module['bindings'][AdminAuthConfigInterface::class])
             ->toBe(AdminAuthConfig::class);

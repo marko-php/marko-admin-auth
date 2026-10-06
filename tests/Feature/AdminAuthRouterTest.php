@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Marko\AdminAuth\Tests\Feature;
 
 use Marko\Admin\Config\AdminConfigInterface;
+use Marko\AdminAuth\AdminGuardResolver;
 use Marko\AdminAuth\Attributes\RequiresPermission;
 use Marko\AdminAuth\Entity\AdminUser;
 use Marko\AdminAuth\Entity\Role;
 use Marko\AdminAuth\Middleware\AdminAuthMiddleware;
-use Marko\Authentication\Contracts\GuardInterface;
+use Marko\AdminAuth\Tests\Fixtures\FixedAdminGuardResolver;
 use Marko\Core\Container\BindingRegistry;
 use Marko\Core\Container\Container;
 use Marko\Core\Module\ModuleManifest;
@@ -72,7 +73,7 @@ function createAdminRouter(
     }
 
     $container = new Container();
-    $container->instance(GuardInterface::class, $guard);
+    $container->instance(AdminGuardResolver::class, new FixedAdminGuardResolver($guard));
     $container->instance(AdminConfigInterface::class, new RouterAdminConfig());
 
     // The permission registry comes from admin-auth's own module.php, as in production.

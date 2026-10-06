@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Marko\Admin\Discovery\DiscoveredAdminSections;
-use Marko\AdminAuth\AdminUserProvider;
 use Marko\AdminAuth\Config\AdminAuthConfig;
 use Marko\AdminAuth\Config\AdminAuthConfigInterface;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
@@ -15,23 +14,16 @@ use Marko\AdminAuth\Repository\PermissionRepository;
 use Marko\AdminAuth\Repository\PermissionRepositoryInterface;
 use Marko\AdminAuth\Repository\RoleRepository;
 use Marko\AdminAuth\Repository\RoleRepositoryInterface;
-use Marko\Authentication\Contracts\PasswordHasherInterface;
-use Marko\Authentication\Contracts\UserProviderInterface;
-use Marko\Core\Container\ContainerInterface;
 
 return [
+    // No global UserProviderInterface binding: the admin guard gets AdminUserProvider
+    // through authentication.providers.admins (config/authentication.php), so the
+    // app's frontend provider and the admin provider never replace each other.
     'bindings' => [
         AdminAuthConfigInterface::class => AdminAuthConfig::class,
         AdminUserRepositoryInterface::class => AdminUserRepository::class,
         RoleRepositoryInterface::class => RoleRepository::class,
         PermissionRepositoryInterface::class => PermissionRepository::class,
-        UserProviderInterface::class => function (ContainerInterface $container): UserProviderInterface {
-            return new AdminUserProvider(
-                userRepository: $container->get(AdminUserRepositoryInterface::class),
-                roleRepository: $container->get(RoleRepositoryInterface::class),
-                passwordHasher: $container->get(PasswordHasherInterface::class),
-            );
-        },
     ],
     'singletons' => [
         // Shared: permissions registered through one injected registry must be visible to every consumer.

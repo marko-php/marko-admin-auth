@@ -5,20 +5,36 @@ declare(strict_types=1);
 namespace Marko\AdminAuth\Tests\Unit\Middleware;
 
 use Marko\Admin\Config\AdminConfigInterface;
+use Marko\AdminAuth\AdminGuardResolver;
 use Marko\AdminAuth\Attributes\RequiresPermission;
+use Marko\AdminAuth\Config\AdminAuthConfig;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
 use Marko\AdminAuth\Entity\AdminUser;
 use Marko\AdminAuth\Entity\Role;
 use Marko\AdminAuth\Middleware\AdminAuthMiddleware;
 use Marko\AdminAuth\PermissionRegistry;
+use Marko\AdminAuth\Tests\Fixtures\FixedAdminGuardResolver;
 use Marko\Authentication\AuthenticatableInterface;
+use Marko\Authentication\AuthManager;
+use Marko\Authentication\Config\AuthConfig;
 use Marko\Authentication\Contracts\GuardInterface;
 use Marko\Authentication\Contracts\StatelessGuardInterface;
+use Marko\Authentication\Contracts\UserProviderInterface;
 use Marko\Authentication\Exceptions\UnauthenticatedException;
+use Marko\Authentication\Token\RememberTokenManager;
+use Marko\Authentication\UserProviderResolver;
+use Marko\Core\Container\Container;
 use Marko\Routing\Exceptions\HttpException;
 use Marko\Routing\Http\Request;
 use Marko\Routing\Http\Response;
+use Marko\Testing\Fake\FakeAuthenticatable;
+use Marko\Testing\Fake\FakeClock;
+use Marko\Testing\Fake\FakeConfigRepository;
+use Marko\Testing\Fake\FakeCookieJar;
+use Marko\Testing\Fake\FakeEventDispatcher;
 use Marko\Testing\Fake\FakeGuard;
+use Marko\Testing\Fake\FakeSession;
+use Marko\Testing\Fake\FakeUserProvider;
 use RuntimeException;
 
 // Test controller classes for attribute reflection
@@ -76,6 +92,9 @@ class StatelessAdminGuard extends FakeGuard implements StatelessGuardInterface
     }
 }
 
+// Stands in for AdminUserProvider: the admin guard's own user store
+class MiddlewareAdminProvider extends FakeUserProvider {}
+
 // Helper to create a standard middleware instance
 function createMiddleware(
     ?GuardInterface $guard = null,
@@ -83,7 +102,7 @@ function createMiddleware(
     ?PermissionRegistryInterface $permissionRegistry = null,
 ): AdminAuthMiddleware {
     return new AdminAuthMiddleware(
-        guard: $guard ?? new FakeGuard(name: 'admin', attemptResult: false),
+        adminGuard: new FixedAdminGuardResolver($guard ?? new FakeGuard(name: 'admin', attemptResult: false)),
         adminConfig: $adminConfig ?? new StubAdminConfig(),
         permissionRegistry: $permissionRegistry ?? new PermissionRegistry(),
     );
@@ -539,3 +558,92 @@ it(
             ->and($exception->getContext())->toContain('not an admin user');
     },
 );
+
+it(
+    'throws a 403 for an authenticated user that is not an admin user on a route without a permission',
+    function (): void {
+        $guard = new FakeGuard(name: 'admin', attemptResult: false);
+        $guard->setUser(new FakeAuthenticatable(id: 99));
+
+        $request = (new Request())->withRoute(TestControllerWithoutPermission::class, 'index');
+
+        $exception = captureHttpException(createMiddleware(guard: $guard), $request);
+
+        expect($exception->getStatusCode())->toBe(403)
+            ->and($exception->getMessage())->toBe('Forbidden.')
+            ->and($exception->getContext())->toContain("guard 'admin' is not an admin user");
+    },
+);
+
+describe('admin guard resolution through AuthManager', function (): void {
+    beforeEach(function (): void {
+        $session = new FakeSession();
+        $session->start();
+
+        $configRepository = new FakeConfigRepository([
+            'admin-auth.guard' => 'admin',
+            'authentication.remember.cookie.prefix' => 'remember_',
+            'authentication.default.guard' => 'session',
+            'authentication.guards' => [
+                'session' => ['driver' => 'session', 'provider' => 'users'],
+                'admin' => ['driver' => 'session', 'provider' => 'admins'],
+            ],
+            'authentication.providers' => [
+                'users' => [],
+                'admins' => ['class' => MiddlewareAdminProvider::class],
+            ],
+        ]);
+        $authConfig = new AuthConfig($configRepository);
+
+        // Same identifier in both stores: only the guard decides which user it is.
+        $container = new Container();
+        $container->instance(
+            UserProviderInterface::class,
+            new FakeUserProvider(users: [1 => new FakeAuthenticatable(id: 1)]),
+        );
+        $container->instance(
+            MiddlewareAdminProvider::class,
+            new MiddlewareAdminProvider(users: [1 => createAdminUser()]),
+        );
+
+        $this->authManager = new AuthManager(
+            config: $authConfig,
+            session: $session,
+            providerResolver: new UserProviderResolver($authConfig, $container),
+            eventDispatcher: new FakeEventDispatcher(),
+            cookieJar: new FakeCookieJar(),
+            rememberTokenManager: new RememberTokenManager(new FakeClock()),
+        );
+
+        $this->middleware = new AdminAuthMiddleware(
+            adminGuard: new AdminGuardResolver($this->authManager, new AdminAuthConfig($configRepository)),
+            adminConfig: new StubAdminConfig(),
+            permissionRegistry: new PermissionRegistry(),
+        );
+    });
+
+    it('does not let a frontend login on the default guard into the admin area', function (): void {
+        $this->authManager->guard()->loginById(1);
+
+        $response = $this->middleware->handle(
+            (new Request())->withRoute(TestControllerWithoutPermission::class, 'index'),
+            createSuccessNext(),
+        );
+
+        expect($this->authManager->guard()->check())->toBeTrue()
+            ->and($response->statusCode())->toBe(302)
+            ->and($response->headers()['Location'])->toBe('/admin/login');
+    });
+
+    it('admits an admin logged in on the guard named by admin-auth.guard', function (): void {
+        $this->authManager->guard('admin')->loginById(1);
+
+        $response = $this->middleware->handle(
+            (new Request())->withRoute(TestControllerWithoutPermission::class, 'index'),
+            createSuccessNext(),
+        );
+
+        expect($response->body())->toBe('success')
+            ->and($this->authManager->guard()->check())->toBeFalse();
+    });
+});
