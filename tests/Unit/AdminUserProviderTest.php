@@ -14,9 +14,16 @@ use Marko\AdminAuth\Repository\RoleRepositoryInterface;
 use Marko\Authentication\Contracts\PasswordHasherInterface;
 use Marko\Authentication\Contracts\UserProviderInterface;
 use Marko\Authentication\Guard\SessionGuard;
+use Marko\Authentication\Hashing\BcryptPasswordHasher;
+use Marko\Authentication\Hashing\HashManagerPasswordHasher;
 use Marko\Database\Entity\Entity;
 use Marko\Database\Entity\EntityCollection;
+use Marko\Hashing\Config\HashConfig;
+use Marko\Hashing\Factory\HasherFactory;
+use Marko\Hashing\HashManager;
 use Marko\Session\Contracts\SessionInterface;
+use Marko\Testing\Fake\FakeConfigRepository;
+use Marko\Testing\Fake\FakeSession;
 use ReflectionClass;
 use RuntimeException;
 
@@ -481,6 +488,70 @@ it('updates remember token via updateRememberToken', function (): void {
         ->and($user->getRememberTokenExpiresAt())->toBe($expiresAt)
         ->and($userRepo->saveCallCount)->toBe(1)
         ->and($userRepo->lastSavedUser)->toBe($user);
+});
+
+it('rehashes and saves the password when the bcrypt cost has been raised', function (): void {
+    $user = createTestAdminUser(password: new BcryptPasswordHasher(cost: 4)->hash('secret'));
+    $userRepo = createMockUserRepo();
+    $hasher = new BcryptPasswordHasher(cost: 5);
+    $provider = new AdminUserProvider($userRepo, createMockRoleRepo(), $hasher);
+
+    $provider->rehashPasswordIfNeeded($user, ['password' => 'secret']);
+
+    expect($user->password)->toStartWith('$2y$05$')
+        ->and($hasher->verify('secret', $user->password))->toBeTrue()
+        ->and($userRepo->saveCallCount)->toBe(1)
+        ->and($userRepo->lastSavedUser)->toBe($user);
+});
+
+it('leaves an up-to-date password hash alone', function (): void {
+    $hash = new BcryptPasswordHasher(cost: 4)->hash('secret');
+    $user = createTestAdminUser(password: $hash);
+    $userRepo = createMockUserRepo();
+    $provider = new AdminUserProvider($userRepo, createMockRoleRepo(), new BcryptPasswordHasher(cost: 4));
+
+    $provider->rehashPasswordIfNeeded($user, ['password' => 'secret']);
+
+    expect($user->password)->toBe($hash)
+        ->and($userRepo->saveCallCount)->toBe(0);
+});
+
+it('does not rehash when the password is not a string', function (): void {
+    $hash = new BcryptPasswordHasher(cost: 4)->hash('secret');
+    $user = createTestAdminUser(password: $hash);
+    $userRepo = createMockUserRepo();
+    $provider = new AdminUserProvider($userRepo, createMockRoleRepo(), new BcryptPasswordHasher(cost: 5));
+
+    $provider->rehashPasswordIfNeeded($user, ['password' => ['secret']]);
+
+    expect($user->password)->toBe($hash)
+        ->and($userRepo->saveCallCount)->toBe(0);
+});
+
+it('upgrades a bcrypt user to argon2id on login when marko/hashing uses the argon2id driver', function (): void {
+    $user = createTestAdminUser(password: password_hash('secret', PASSWORD_BCRYPT, ['cost' => 4]));
+    $userRepo = createMockUserRepo(findByEmailReturn: $user);
+    $config = new HashConfig(new FakeConfigRepository([
+        'hashing.default' => 'argon2id',
+        'hashing.hashers.bcrypt.cost' => 4,
+        'hashing.hashers.argon2id.memory' => 1024,
+        'hashing.hashers.argon2id.time' => 1,
+        'hashing.hashers.argon2id.threads' => 1,
+    ]));
+    $hasher = new HashManagerPasswordHasher(new HashManager($config, new HasherFactory($config)));
+    $provider = new AdminUserProvider($userRepo, createMockRoleRepo(), $hasher);
+    $session = new FakeSession();
+    $session->start();
+    $guard = new SessionGuard($session, $provider);
+
+    $loggedIn = $guard->attempt(['email' => 'admin@example.com', 'password' => 'secret']);
+
+    expect($loggedIn)->toBeTrue()
+        ->and($user->password)->toStartWith('$argon2id$')
+        ->and($hasher->verify('secret', $user->password))->toBeTrue()
+        ->and($userRepo->lastSavedUser)->toBe($user)
+        ->and($guard->attempt(['email' => 'admin@example.com', 'password' => 'secret']))->toBeTrue()
+        ->and($userRepo->saveCallCount)->toBe(1);
 });
 
 it('loads the same permission set as the per-role implementation', function (): void {
