@@ -224,6 +224,22 @@ it('syncs permissions from registry to database creating new and preserving exis
     expect(count($insertQueries))->toBe(1);
 });
 
+it('returns the number of permissions created by syncFromRegistry', function (): void {
+    $queryHistory = [];
+    $callCount = 0;
+
+    // The first key already exists, the second is new.
+    $connection = createPermissionSyncMockConnection($queryHistory, $callCount);
+
+    $registry = new PermissionRegistry();
+    $registry->register('blog.posts.create', 'Create Posts', 'blog');
+    $registry->register('blog.posts.edit', 'Edit Posts', 'blog');
+
+    $repository = new PermissionRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
+
+    expect($repository->syncFromRegistry($registry))->toBe(1);
+});
+
 // Helper functions
 
 function createPermissionMockConnection(

@@ -54,12 +54,14 @@ class PermissionRepository extends Repository implements PermissionRepositoryInt
      *
      * Creates new permissions that exist in the registry but not in the database.
      * Preserves existing permissions.
+     *
+     * @return int The number of permissions created
      */
-    public function syncFromRegistry(PermissionRegistryInterface $registry): void
+    public function syncFromRegistry(PermissionRegistryInterface $registry): int
     {
-        $registeredPermissions = $registry->all();
+        $created = 0;
 
-        foreach ($registeredPermissions as $registered) {
+        foreach ($registry->all() as $registered) {
             $existing = $this->findByKey($registered->key);
 
             if ($existing !== null) {
@@ -72,6 +74,9 @@ class PermissionRepository extends Repository implements PermissionRepositoryInt
             $permission->group = $registered->group;
 
             $this->save($permission);
+            $created++;
         }
+
+        return $created;
     }
 }

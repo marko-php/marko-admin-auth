@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Marko\AdminAuth\Discovery;
 
+use Marko\Admin\Discovery\AdminSectionDefinition;
 use Marko\Admin\Discovery\AdminSectionDiscovery;
 use Marko\Admin\Exceptions\AdminException;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
+use Marko\AdminAuth\Exceptions\AdminAuthException;
 use ReflectionException;
 
 readonly class PermissionDiscovery
@@ -20,19 +22,55 @@ readonly class PermissionDiscovery
      * Discover permissions from AdminPermission attributes on an AdminSection class.
      *
      * @param class-string $className
-     * @throws AdminException|ReflectionException
+     * @throws AdminException|AdminAuthException|ReflectionException
      */
     public function discoverFromClass(
         string $className,
     ): void {
-        $definition = $this->sectionDiscovery->parseAdminSectionClass($className);
+        $this->registerFromDefinitions([$this->sectionDiscovery->parseAdminSectionClass($className)]);
+    }
 
-        foreach ($definition->permissions as $permission) {
-            $this->registry->register(
-                key: $permission->id,
-                label: $permission->label,
-                group: $this->deriveGroup($permission->id),
-            );
+    /**
+     * Register the #[AdminPermission] entries of already-parsed admin sections.
+     *
+     * Each permission is grouped by the first segment of its key. Two sections that
+     * declare the same key fail loudly, naming both section classes.
+     *
+     * @param array<AdminSectionDefinition> $definitions
+     * @throws AdminAuthException
+     */
+    public function registerFromDefinitions(
+        array $definitions,
+    ): void {
+        /** @var array<string, string> $declaredBy permission key => section class */
+        $declaredBy = [];
+
+        foreach ($definitions as $definition) {
+            foreach ($definition->permissions as $permission) {
+                if (isset($declaredBy[$permission->id])) {
+                    throw AdminAuthException::duplicatePermission(
+                        $permission->id,
+                        $declaredBy[$permission->id],
+                        $definition->className,
+                    );
+                }
+
+                $declaredBy[$permission->id] = $definition->className;
+            }
+        }
+
+        foreach ($definitions as $definition) {
+            foreach ($definition->permissions as $permission) {
+                try {
+                    $this->registry->register(
+                        key: $permission->id,
+                        label: $permission->label,
+                        group: $this->deriveGroup($permission->id),
+                    );
+                } catch (AdminAuthException $e) {
+                    throw AdminAuthException::permissionAlreadyRegistered($permission->id, $definition->className, $e);
+                }
+            }
         }
     }
 

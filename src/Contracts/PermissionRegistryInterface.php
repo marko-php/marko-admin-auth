@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Marko\AdminAuth\Contracts;
 
+use Marko\AdminAuth\Exceptions\AdminAuthException;
 use Marko\AdminAuth\RegisteredPermission;
 
 interface PermissionRegistryInterface
 {
+    /**
+     * @throws AdminAuthException When the key is already registered
+     */
     public function register(
         string $key,
         string $label,

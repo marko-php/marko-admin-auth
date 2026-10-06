@@ -8,10 +8,14 @@ use Marko\Admin\Attributes\AdminPermission;
 use Marko\Admin\Attributes\AdminSection;
 use Marko\Admin\Contracts\AdminSectionInterface;
 use Marko\Admin\Contracts\MenuItemInterface;
+use Marko\Admin\Discovery\AdminPermissionDefinition;
+use Marko\Admin\Discovery\AdminSectionDefinition;
 use Marko\Admin\Discovery\AdminSectionDiscovery;
 use Marko\Admin\Exceptions\AdminException;
 use Marko\AdminAuth\Discovery\PermissionDiscovery;
+use Marko\AdminAuth\Exceptions\AdminAuthException;
 use Marko\AdminAuth\PermissionRegistry;
+use Marko\AdminAuth\RegisteredPermission;
 use ReflectionException;
 
 it('discovers permissions from AdminPermission attributes on AdminSection classes', function (): void {
@@ -118,6 +122,95 @@ it('registers nothing when discovery fails', function (): void {
 
     expect($registry->all())->toBeEmpty();
 });
+
+it('registers the permissions of every section definition grouped by the first key segment', function (): void {
+    $registry = new PermissionRegistry();
+    $discovery = new PermissionDiscovery(
+        registry: $registry,
+        sectionDiscovery: new AdminSectionDiscovery(),
+    );
+
+    $discovery->registerFromDefinitions([
+        new AdminSectionDefinition(
+            className: 'App\\Admin\\CatalogSection',
+            id: 'catalog',
+            label: 'Catalog',
+            icon: '',
+            sortOrder: 0,
+            permissions: [new AdminPermissionDefinition(id: 'catalog.products.view', label: 'View Products')],
+        ),
+        new AdminSectionDefinition(
+            className: 'App\\Admin\\SalesSection',
+            id: 'sales',
+            label: 'Sales',
+            icon: '',
+            sortOrder: 0,
+            permissions: [new AdminPermissionDefinition(id: 'sales.orders.view', label: 'View Orders')],
+        ),
+    ]);
+
+    expect(array_map(
+        static fn (RegisteredPermission $permission): array => [$permission->key, $permission->label, $permission->group],
+        $registry->all(),
+    ))->toBe([
+        ['catalog.products.view', 'View Products', 'catalog'],
+        ['sales.orders.view', 'View Orders', 'sales'],
+    ]);
+});
+
+it('throws duplicatePermission naming both classes when two sections declare the same key', function (): void {
+    $discovery = new PermissionDiscovery(
+        registry: new PermissionRegistry(),
+        sectionDiscovery: new AdminSectionDiscovery(),
+    );
+    $permissions = [new AdminPermissionDefinition(id: 'shared.view', label: 'View')];
+
+    expect(fn () => $discovery->registerFromDefinitions([
+        new AdminSectionDefinition(
+            className: 'App\\Admin\\FirstSection',
+            id: 'first',
+            label: 'First',
+            icon: '',
+            sortOrder: 0,
+            permissions: $permissions,
+        ),
+        new AdminSectionDefinition(
+            className: 'App\\Admin\\SecondSection',
+            id: 'second',
+            label: 'Second',
+            icon: '',
+            sortOrder: 0,
+            permissions: $permissions,
+        ),
+    ]))->toThrow(
+        AdminAuthException::class,
+        "Permission with key 'shared.view' is declared by both 'App\\Admin\\FirstSection' and 'App\\Admin\\SecondSection'",
+    );
+});
+
+it(
+    'names the section class and suggests removing the manual registration when a key was already registered by hand',
+    function (): void {
+        $registry = new PermissionRegistry();
+        $registry->register(key: 'blog.posts.create', label: 'Create Posts', group: 'blog');
+        $discovery = new PermissionDiscovery(
+            registry: $registry,
+            sectionDiscovery: new AdminSectionDiscovery(),
+        );
+    
+        try {
+            $discovery->discoverFromClass(DiscoverySectionWithPermissions::class);
+            $this->fail('Expected AdminAuthException was not thrown');
+        } catch (AdminAuthException $e) {
+            expect($e->getMessage())->toBe(
+                "Permission with key 'blog.posts.create' declared by #[AdminPermission] on '"
+                . DiscoverySectionWithPermissions::class . "' is already registered",
+            )
+                ->and($e->getSuggestion())->toContain('Remove the manual PermissionRegistryInterface::register() call')
+                ->and($e->getPrevious())->toBeInstanceOf(AdminAuthException::class);
+        }
+    }
+);
 
 // Test fixture classes
 #[AdminPermission(id: 'reports.view', label: 'View Reports')]

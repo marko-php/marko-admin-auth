@@ -5,17 +5,24 @@ declare(strict_types=1);
 namespace Marko\AdminAuth\Tests\Unit;
 
 use Marko\Admin\Config\AdminConfigInterface;
+use Marko\Admin\Discovery\AdminSectionCacheContributor;
+use Marko\Admin\Discovery\DiscoveredAdminSections;
 use Marko\AdminAuth\Attributes\RequiresPermission;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
 use Marko\AdminAuth\Entity\AdminUser;
 use Marko\AdminAuth\Entity\Role;
 use Marko\AdminAuth\Middleware\AdminAuthMiddleware;
 use Marko\AdminAuth\PermissionRegistry;
+use Marko\AdminAuth\RegisteredPermission;
 use Marko\Authentication\Contracts\GuardInterface;
 use Marko\Core\Container\BindingRegistry;
 use Marko\Core\Container\Container;
+use Marko\Core\Container\ContainerInterface;
 use Marko\Core\Container\PreferenceRegistry;
+use Marko\Core\Discovery\CachedDiscovery;
 use Marko\Core\Module\ModuleManifest;
+use Marko\Core\Module\ModuleRepository;
+use Marko\Core\Module\ModuleRepositoryInterface;
 use Marko\Routing\Http\Request;
 use Marko\Routing\Http\Response;
 use Marko\Testing\Fake\FakeGuard;
@@ -158,6 +165,109 @@ it('lets a registered permission pass the middleware wildcard check through the 
     );
 
     expect($response->body())->toBe('edited');
+});
+
+/**
+ * Add what a real boot provides before admin-auth's boot callback runs: the module
+ * repository, the discovery cache and marko/admin's shared section definitions.
+ */
+function bootAdminAuthModule(
+    Container $container,
+    CachedDiscovery $cachedDiscovery,
+    ModuleManifest ...$modules,
+): void {
+    $container->instance(ContainerInterface::class, $container);
+    $container->instance(CachedDiscovery::class, $cachedDiscovery);
+    $container->instance(ModuleRepositoryInterface::class, new ModuleRepository($modules));
+    $container->singleton(DiscoveredAdminSections::class);
+
+    $container->call(adminAuthModule()['boot']);
+}
+
+/**
+ * @return array<int, array{string, string, string}>
+ */
+function registeredPermissionRows(
+    Container $container,
+): array {
+    return array_map(
+        static fn (RegisteredPermission $permission): array => [$permission->key, $permission->label, $permission->group],
+        $container->get(PermissionRegistryInterface::class)->all(),
+    );
+}
+
+it('registers attribute-declared permissions at boot', function (): void {
+    $path = sys_get_temp_dir() . '/marko-admin-auth-wiring-' . bin2hex(random_bytes(8));
+    mkdir($path . '/src', 0755, true);
+    file_put_contents($path . '/src/InventorySection.php', <<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+namespace AdminAuthWiringBoot;
+
+use Marko\Admin\Attributes\AdminPermission;
+use Marko\Admin\Attributes\AdminSection;
+use Marko\Admin\Contracts\AdminSectionInterface;
+
+#[AdminSection(id: 'inventory', label: 'Inventory')]
+#[AdminPermission(id: 'inventory.items.view', label: 'View Items')]
+#[AdminPermission(id: 'inventory.items.edit', label: 'Edit Items')]
+class InventorySection implements AdminSectionInterface
+{
+    public function getId(): string { return 'inventory'; }
+    public function getLabel(): string { return 'Inventory'; }
+    public function getIcon(): string { return ''; }
+    public function getSortOrder(): int { return 0; }
+    public function getMenuItems(): array { return []; }
+}
+PHP);
+    $container = adminAuthModuleContainer();
+
+    try {
+        bootAdminAuthModule(
+            $container,
+            new CachedDiscovery(),
+            new ModuleManifest(name: 'app/inventory', version: '1.0.0', path: $path),
+        );
+    } finally {
+        unlink($path . '/src/InventorySection.php');
+        rmdir($path . '/src');
+        rmdir($path);
+    }
+
+    expect(registeredPermissionRows($container))->toBe([
+        ['inventory.items.view', 'View Items', 'inventory'],
+        ['inventory.items.edit', 'Edit Items', 'inventory'],
+    ]);
+});
+
+it('registers permissions from a warm discovery cache without scanning', function (): void {
+    $container = adminAuthModuleContainer();
+
+    // The only module points at a path that does not exist: a scan would find nothing.
+    bootAdminAuthModule(
+        $container,
+        new CachedDiscovery([
+            AdminSectionCacheContributor::KEY => [
+                [
+                    'className' => 'App\\Admin\\ShippingSection',
+                    'id' => 'shipping',
+                    'label' => 'Shipping',
+                    'icon' => '',
+                    'sortOrder' => 0,
+                    'permissions' => [['id' => 'shipping.rates.edit', 'label' => 'Edit Rates']],
+                ],
+            ],
+        ]),
+        new ModuleManifest(
+            name: 'app/missing',
+            version: '1.0.0',
+            path: sys_get_temp_dir() . '/marko-admin-auth-wiring-missing',
+        ),
+    );
+
+    expect(registeredPermissionRows($container))->toBe([['shipping.rates.edit', 'Edit Rates', 'shipping']]);
 });
 
 it('shares a Preference that replaces PermissionRegistryInterface', function (): void {

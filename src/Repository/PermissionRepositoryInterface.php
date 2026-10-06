@@ -34,6 +34,8 @@ interface PermissionRepositoryInterface extends RepositoryInterface
      *
      * Creates new permissions that exist in the registry but not in the database.
      * Preserves existing permissions.
+     *
+     * @return int The number of permissions created
      */
-    public function syncFromRegistry(PermissionRegistryInterface $registry): void;
+    public function syncFromRegistry(PermissionRegistryInterface $registry): int;
 }

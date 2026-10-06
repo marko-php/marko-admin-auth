@@ -67,12 +67,12 @@ it('findByGroup method signature requires string and returns array', function ()
     expect($returnType->getName())->toBe('array');
 });
 
-it('syncFromRegistry method signature returns void', function (): void {
+it('syncFromRegistry method signature returns the number of permissions created', function (): void {
     $reflection = new ReflectionClass(PermissionRepositoryInterface::class);
     $method = $reflection->getMethod('syncFromRegistry');
 
     $returnType = $method->getReturnType();
-    expect($returnType->getName())->toBe('void');
+    expect($returnType->getName())->toBe('int');
 });
 
 it('updates PermissionRepositoryInterface to accept registry parameter', function (): void {
