@@ -504,6 +504,11 @@ function createRoleSavepointConnection(
             return 'sqlite';
         }
 
+        public function supportsReturning(): bool
+        {
+            return false;
+        }
+
         public function beginTransaction(): void
         {
             $this->txLog[] = ['op' => 'beginTransaction'];
@@ -674,6 +679,11 @@ function createRoleMockConnectionWithHistory(
         public function driverName(): string
         {
             return 'sqlite';
+        }
+
+        public function supportsReturning(): bool
+        {
+            return false;
         }
     };
 }

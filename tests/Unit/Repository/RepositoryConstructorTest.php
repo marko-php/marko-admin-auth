@@ -201,5 +201,10 @@ function createConstructorMockConnection(
         {
             return 'sqlite';
         }
+
+        public function supportsReturning(): bool
+        {
+            return false;
+        }
     };
 }

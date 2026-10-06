@@ -227,5 +227,10 @@ function createAdminUserMockConnectionWithHistory(
         {
             return 'sqlite';
         }
+
+        public function supportsReturning(): bool
+        {
+            return false;
+        }
     };
 }

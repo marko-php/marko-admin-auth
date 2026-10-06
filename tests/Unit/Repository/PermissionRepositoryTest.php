@@ -302,6 +302,11 @@ function createPermissionMockConnectionWithHistory(
         {
             return 'sqlite';
         }
+
+        public function supportsReturning(): bool
+        {
+            return false;
+        }
     };
 }
 
@@ -386,6 +391,11 @@ function createPermissionSyncMockConnection(
         public function driverName(): string
         {
             return 'sqlite';
+        }
+
+        public function supportsReturning(): bool
+        {
+            return false;
         }
     };
 }
