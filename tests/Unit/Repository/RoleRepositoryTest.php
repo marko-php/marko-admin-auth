@@ -14,8 +14,10 @@ use Marko\Database\Connection\TransactionInterface;
 use Marko\Database\Entity\EntityHydrator;
 use Marko\Database\Entity\EntityMetadataFactory;
 use Marko\Database\Repository\Repository;
+use PDO;
 use ReflectionClass;
 use RuntimeException;
+use Throwable;
 
 it('creates RoleRepository extending Repository', function (): void {
     $reflection = new ReflectionClass(RoleRepository::class);
@@ -213,7 +215,7 @@ it('inserts all new permissions in a single multi-row insert', function (): void
 
 it('wraps the delete and insert in one transaction when the connection supports transactions', function (): void {
     $txLog = [];
-    $connection = createRoleTransactionalConnectionWithHistory([], $txLog);
+    $connection = createRoleSavepointConnection($txLog);
     $metadataFactory = new EntityMetadataFactory();
     $hydrator = new EntityHydrator();
 
@@ -225,12 +227,14 @@ it('wraps the delete and insert in one transaction when the connection supports 
 
     expect($ops[0])->toBe('beginTransaction')
         ->and(in_array('execute', $ops, true))->toBeTrue()
-        ->and($ops[count($ops) - 1])->toBe('commit');
+        ->and($ops[count($ops) - 1])->toBe('commit')
+        ->and(rolePermissionIds($connection, 1))->toBe([10, 20]);
 });
 
 it('rolls back and leaves permissions unchanged when an insert fails mid-sync', function (): void {
     $txLog = [];
-    $connection = createRoleTransactionalConnectionWithHistory([], $txLog, failOnInsert: true);
+    $connection = createRoleSavepointConnection($txLog, failOnPermissionId: 20);
+    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 1), (1, 2)');
     $metadataFactory = new EntityMetadataFactory();
     $hydrator = new EntityHydrator();
 
@@ -243,7 +247,50 @@ it('rolls back and leaves permissions unchanged when an insert fails mid-sync', 
 
     expect(in_array('beginTransaction', $ops, true))->toBeTrue()
         ->and(in_array('rollback', $ops, true))->toBeTrue()
-        ->and(in_array('commit', $ops, true))->toBeFalse();
+        ->and(in_array('commit', $ops, true))->toBeFalse()
+        ->and(rolePermissionIds($connection, 1))->toBe([1, 2]);
+});
+
+it('rolls back only its own changes when it fails inside an outer transaction', function (): void {
+    $connection = createRoleSavepointConnection(failOnPermissionId: 20);
+    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 1), (1, 2)');
+    $repository = new RoleRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
+
+    $connection->beginTransaction();
+    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 5)');
+
+    try {
+        $repository->syncPermissions(1, [10, 20]);
+    } catch (RuntimeException) {
+        // The caller decides to keep its own work.
+    }
+
+    expect($connection->inTransaction())->toBeTrue()
+        ->and(rolePermissionIds($connection, 1))->toBe([1, 2])
+        ->and(rolePermissionIds($connection, 2))->toBe([5]);
+
+    $connection->rollback();
+});
+
+it('lets the outer transaction commit after a failed sync is caught', function (): void {
+    $connection = createRoleSavepointConnection(failOnPermissionId: 20);
+    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 1), (1, 2)');
+    $repository = new RoleRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
+
+    $connection->beginTransaction();
+    $connection->execute('INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 5)');
+
+    try {
+        $repository->syncPermissions(1, [10, 20]);
+    } catch (RuntimeException) {
+        // The caller decides to keep its own work.
+    }
+
+    $connection->commit();
+
+    expect($connection->inTransaction())->toBeFalse()
+        ->and(rolePermissionIds($connection, 1))->toBe([1, 2])
+        ->and(rolePermissionIds($connection, 2))->toBe([5]);
 });
 
 it('still syncs when the connection does not support transactions', function (): void {
@@ -366,28 +413,41 @@ it('issues no permissions query when the user has no roles', function (): void {
 // Helper functions
 
 /**
- * @param array<array<string, mixed>> $queryResult
- * @param array<array{op: string, sql?: string, bindings?: array}> $txLog
+ * In-memory SQLite connection with a role_permissions table and real nested
+ * transactions: the outermost level is a PDO transaction, every nested level a
+ * SAVEPOINT, matching the pgsql and mysql drivers.
+ *
+ * @param array<array{op: string, sql?: string, bindings?: array}>|null $txLog
+ * @param int|null $failOnPermissionId Throw when an INSERT binds this permission id
  */
-function createRoleTransactionalConnectionWithHistory(
-    array $queryResult = [],
+function createRoleSavepointConnection(
     ?array &$txLog = null,
-    bool $failOnInsert = false,
+    ?int $failOnPermissionId = null,
 ): ConnectionInterface&TransactionInterface {
     $txLog ??= [];
 
-    return new class ($queryResult, $txLog, $failOnInsert) implements ConnectionInterface, TransactionInterface
+    $connection = new class ($txLog, $failOnPermissionId) implements ConnectionInterface, TransactionInterface
     {
+        private PDO $pdo;
+
+        private int $level = 0;
+
         /**
-         * @param array<array<string, mixed>> $queryResult
          * @param array<array{op: string, sql?: string, bindings?: array}> $txLog
          */
         public function __construct(
-            private readonly array $queryResult,
             /** @noinspection PhpPropertyOnlyWrittenInspection - Reference property modifies external variable */
             private array &$txLog,
-            private readonly bool $failOnInsert,
-        ) {}
+            private readonly ?int $failOnPermissionId,
+        ) {
+            $this->pdo = new PDO('sqlite::memory:', options: [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+            $this->pdo->exec(
+                'CREATE TABLE role_permissions (role_id INTEGER NOT NULL, permission_id INTEGER NOT NULL)',
+            );
+        }
 
         public function connect(): void {}
 
@@ -402,22 +462,29 @@ function createRoleTransactionalConnectionWithHistory(
             string $sql,
             array $bindings = [],
         ): array {
-            $this->txLog[] = ['op' => 'execute', 'sql' => $sql, 'bindings' => $bindings];
+            $statement = $this->pdo->prepare($sql);
+            $statement->execute($bindings);
 
-            return $this->queryResult;
+            return $statement->fetchAll();
         }
 
         public function execute(
             string $sql,
             array $bindings = [],
         ): int {
-            if ($this->failOnInsert && str_contains($sql, 'INSERT')) {
+            if (
+                $this->failOnPermissionId !== null
+                && str_contains($sql, 'INSERT')
+                && in_array($this->failOnPermissionId, $bindings, true)
+            ) {
                 throw new RuntimeException('Simulated insert failure');
             }
 
             $this->txLog[] = ['op' => 'execute', 'sql' => $sql, 'bindings' => $bindings];
+            $statement = $this->pdo->prepare($sql);
+            $statement->execute($bindings);
 
-            return 1;
+            return $statement->rowCount();
         }
 
         public function prepare(string $sql): StatementInterface
@@ -427,7 +494,7 @@ function createRoleTransactionalConnectionWithHistory(
 
         public function lastInsertId(): int
         {
-            return 1;
+            return (int) $this->pdo->lastInsertId();
         }
 
         public function driverName(): string
@@ -438,38 +505,89 @@ function createRoleTransactionalConnectionWithHistory(
         public function beginTransaction(): void
         {
             $this->txLog[] = ['op' => 'beginTransaction'];
+
+            if ($this->level === 0) {
+                $this->pdo->beginTransaction();
+            } else {
+                $this->pdo->exec("SAVEPOINT level_$this->level");
+            }
+
+            $this->level++;
         }
 
         public function commit(): void
         {
             $this->txLog[] = ['op' => 'commit'];
+            $this->level--;
+
+            if ($this->level === 0) {
+                $this->pdo->commit();
+            } else {
+                $this->pdo->exec("RELEASE SAVEPOINT level_$this->level");
+            }
         }
 
         public function rollback(): void
         {
             $this->txLog[] = ['op' => 'rollback'];
+            $this->level--;
+
+            if ($this->level === 0) {
+                $this->pdo->rollBack();
+            } else {
+                $this->pdo->exec("ROLLBACK TO SAVEPOINT level_$this->level");
+                $this->pdo->exec("RELEASE SAVEPOINT level_$this->level");
+            }
         }
 
         public function inTransaction(): bool
         {
-            return array_any($this->txLog, fn (array $e): bool => $e['op'] === 'beginTransaction')
-                && !array_any($this->txLog, fn (array $e): bool => $e['op'] === 'commit' || $e['op'] === 'rollback');
+            return $this->level > 0;
         }
 
-        public function transaction(callable $callback): null
+        public function transaction(callable $callback): mixed
         {
-            return null;
+            $this->beginTransaction();
+
+            try {
+                $result = $callback();
+                $this->commit();
+
+                return $result;
+            } catch (Throwable $e) {
+                $this->rollback();
+
+                throw $e;
+            }
         }
 
         public function transactionLevel(): int
         {
-            return 0;
+            return $this->level;
         }
 
         public function afterCommit(callable $callback): void {}
 
         public function afterRollback(callable $callback): void {}
     };
+
+    return $connection;
+}
+
+/**
+ * @return array<int>
+ */
+function rolePermissionIds(
+    ConnectionInterface $connection,
+    int $roleId,
+): array {
+    return array_map(
+        fn (array $row): int => (int) $row['permission_id'],
+        $connection->query(
+            'SELECT permission_id FROM role_permissions WHERE role_id = ? ORDER BY permission_id',
+            [$roleId],
+        ),
+    );
 }
 
 function createRoleMockConnection(

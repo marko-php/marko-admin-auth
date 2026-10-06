@@ -158,8 +158,10 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
     /**
      * Sync permissions for a role, replacing all existing.
      *
-     * Wraps the DELETE and batched INSERT in a transaction when the connection
-     * supports it, so a mid-sync failure cannot leave a role half-synced.
+     * The DELETE and batched INSERT run through transaction(), so a mid-sync
+     * failure cannot leave a role half-synced. Inside a caller's transaction
+     * the sync runs in a savepoint: a failure undoes only the sync's own
+     * changes, and the caller can catch it and still commit its own work.
      *
      * @param array<int> $permissionIds
      * @throws Throwable
@@ -168,14 +170,7 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
         int $roleId,
         array $permissionIds,
     ): void {
-        $ownsTransaction = $this->connection instanceof TransactionInterface
-            && !$this->connection->inTransaction();
-
-        if ($ownsTransaction) {
-            $this->connection->beginTransaction();
-        }
-
-        try {
+        $sync = function () use ($roleId, $permissionIds): void {
             $this->connection->execute(
                 'DELETE FROM role_permissions WHERE role_id = ?',
                 [$roleId],
@@ -196,17 +191,18 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
                     $bindings,
                 );
             }
+        };
 
-            if ($ownsTransaction) {
-                $this->connection->commit();
-            }
-        } catch (Throwable $e) {
-            if ($ownsTransaction) {
-                $this->connection->rollback();
-            }
+        // Same fallback as Repository::insertBatch(): a connection without
+        // transactions (only test doubles; both drivers have them) runs the
+        // statements directly, with no atomicity.
+        if ($this->connection instanceof TransactionInterface) {
+            $this->connection->transaction($sync);
 
-            throw $e;
+            return;
         }
+
+        $sync();
     }
 
     /**
