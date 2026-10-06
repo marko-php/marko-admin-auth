@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Marko\AdminAuth\Tests\Unit\Repository;
 
+use Closure;
 use Marko\AdminAuth\Entity\Permission;
 use Marko\AdminAuth\Entity\Role;
 use Marko\AdminAuth\Repository\RoleRepository;
@@ -549,6 +550,7 @@ function createRoleSavepointConnection(
         public function transaction(
             callable $callback,
             int $attempts = 1,
+            int|Closure|null $backoff = null,
         ): mixed {
             $this->beginTransaction();
 
