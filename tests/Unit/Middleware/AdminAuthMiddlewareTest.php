@@ -13,6 +13,8 @@ use Marko\AdminAuth\Middleware\AdminAuthMiddleware;
 use Marko\AdminAuth\PermissionRegistry;
 use Marko\Authentication\AuthenticatableInterface;
 use Marko\Authentication\Contracts\GuardInterface;
+use Marko\Authentication\Contracts\StatelessGuardInterface;
+use Marko\Authentication\Exceptions\UnauthenticatedException;
 use Marko\Routing\Exceptions\HttpException;
 use Marko\Routing\Http\Request;
 use Marko\Routing\Http\Response;
@@ -62,6 +64,15 @@ readonly class StubAdminConfig implements AdminConfigInterface
     public function getName(): string
     {
         return $this->name;
+    }
+}
+
+// Stands in for a token guard: stateless, with a Bearer challenge
+class StatelessAdminGuard extends FakeGuard implements StatelessGuardInterface
+{
+    public function getChallenge(): string
+    {
+        return 'Bearer';
     }
 }
 
@@ -124,6 +135,28 @@ it('throws a 401 HttpException for an unauthenticated request that wants JSON', 
 
     expect($exception->getStatusCode())->toBe(401)
         ->and($exception->getMessage())->toBe('Unauthorized.');
+});
+
+it('throws an UnauthenticatedException for an unauthenticated JSON request', function (): void {
+    $request = (new Request(server: ['HTTP_ACCEPT' => 'application/json']))
+        ->withRoute(TestControllerWithoutPermission::class, 'index');
+
+    $exception = captureHttpException(createMiddleware(), $request);
+
+    expect($exception)->toBeInstanceOf(UnauthenticatedException::class)
+        ->and($exception->getHeaders())->toBe([]);
+});
+
+it("adds the guard's WWW-Authenticate challenge to the JSON 401 when the admin guard is stateless", function (): void {
+    $middleware = createMiddleware(guard: new StatelessAdminGuard(name: 'admin-api', attemptResult: false));
+
+    $request = (new Request(server: ['HTTP_ACCEPT' => 'application/json']))
+        ->withRoute(TestControllerWithoutPermission::class, 'index');
+
+    $exception = captureHttpException($middleware, $request);
+
+    expect($exception->getStatusCode())->toBe(401)
+        ->and($exception->getHeaders())->toBe(['WWW-Authenticate' => 'Bearer']);
 });
 
 it('passes through when user is authenticated and no RequiresPermission attribute present', function (): void {

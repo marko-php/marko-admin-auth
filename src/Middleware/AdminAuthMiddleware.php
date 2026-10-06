@@ -9,6 +9,7 @@ use Marko\AdminAuth\Attributes\RequiresPermission;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
 use Marko\AdminAuth\Entity\AdminUserInterface;
 use Marko\Authentication\Contracts\GuardInterface;
+use Marko\Authentication\Exceptions\UnauthenticatedException;
 use Marko\Routing\Exceptions\HttpException;
 use Marko\Routing\Http\Request;
 use Marko\Routing\Http\Response;
@@ -22,8 +23,10 @@ use ReflectionMethod;
  *
  * An unauthenticated browser request is redirected to `{prefix}/login`. An
  * unauthenticated request that wants JSON (Request::wantsJson()) gets a 401
- * HttpException, and a user without the required permission gets a 403
- * HttpException. The routing pipeline renders both through ExceptionRenderer.
+ * UnauthenticatedException, which carries the guard's WWW-Authenticate
+ * challenge when the guard is stateless, and a user without the required
+ * permission gets a 403 HttpException. The routing pipeline renders both
+ * through ExceptionRenderer.
  * The required permission is only put in the exception's context for logs,
  * never in the client-facing message.
  */
@@ -36,7 +39,7 @@ readonly class AdminAuthMiddleware implements MiddlewareInterface
     ) {}
 
     /**
-     * @throws ReflectionException|HttpException
+     * @throws HttpException|ReflectionException|UnauthenticatedException
      */
     public function handle(
         Request $request,
@@ -47,7 +50,7 @@ readonly class AdminAuthMiddleware implements MiddlewareInterface
                 return Response::redirect($this->adminConfig->getRoutePrefix() . '/login');
             }
 
-            throw HttpException::unauthorized('Unauthorized.');
+            throw UnauthenticatedException::forGuard($this->guard);
         }
 
         $requiredPermission = $this->getRequiredPermission($request);
