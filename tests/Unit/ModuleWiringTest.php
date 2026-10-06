@@ -7,6 +7,7 @@ namespace Marko\AdminAuth\Tests\Unit;
 use Marko\Admin\Config\AdminConfigInterface;
 use Marko\Admin\Discovery\AdminSectionCacheContributor;
 use Marko\Admin\Discovery\DiscoveredAdminSections;
+use Marko\AdminAuth\AdminGuardResolver;
 use Marko\AdminAuth\Attributes\RequiresPermission;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
 use Marko\AdminAuth\Entity\AdminUser;
@@ -14,6 +15,7 @@ use Marko\AdminAuth\Entity\Role;
 use Marko\AdminAuth\Middleware\AdminAuthMiddleware;
 use Marko\AdminAuth\PermissionRegistry;
 use Marko\AdminAuth\RegisteredPermission;
+use Marko\AdminAuth\Tests\Fixtures\FixedAdminGuardResolver;
 use Marko\Authentication\Contracts\GuardInterface;
 use Marko\Core\Container\BindingRegistry;
 use Marko\Core\Container\Container;
@@ -85,7 +87,10 @@ function adminAuthModuleContainer(
     $module = adminAuthModule();
 
     $container = new Container($preferenceRegistry);
-    $container->instance(GuardInterface::class, $guard ?? new FakeGuard(name: 'admin'));
+    $container->instance(
+        AdminGuardResolver::class,
+        new FixedAdminGuardResolver($guard ?? new FakeGuard(name: 'admin')),
+    );
     $container->instance(AdminConfigInterface::class, new WiringAdminConfig());
 
     new BindingRegistry($container)->registerModule(new ModuleManifest(

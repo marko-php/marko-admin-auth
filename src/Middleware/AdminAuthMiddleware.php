@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Marko\AdminAuth\Middleware;
 
 use Marko\Admin\Config\AdminConfigInterface;
+use Marko\AdminAuth\AdminGuardResolver;
 use Marko\AdminAuth\Attributes\RequiresPermission;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
 use Marko\AdminAuth\Entity\AdminUserInterface;
-use Marko\Authentication\Contracts\GuardInterface;
 use Marko\Authentication\Contracts\StatelessGuardInterface;
+use Marko\Authentication\Exceptions\AuthException;
 use Marko\Authentication\Exceptions\UnauthenticatedException;
+use Marko\Config\Exceptions\ConfigNotFoundException;
 use Marko\Routing\Exceptions\HttpException;
 use Marko\Routing\Http\Request;
 use Marko\Routing\Http\Response;
@@ -21,6 +23,11 @@ use ReflectionMethod;
 /**
  * Gates admin routes on an authenticated admin user and, when the matched
  * action carries #[RequiresPermission], on that permission.
+ *
+ * The user comes from the admin guard (admin-auth.guard, resolved through
+ * AuthManager), never the app's default guard, so a frontend login is not an
+ * admin login. A user that guard authenticates that is not an
+ * AdminUserInterface gets a 403 on every admin route, permission-gated or not.
  *
  * An unauthenticated request gets a 401 UnauthenticatedException. The one
  * exception is a browser request on a stateful guard: it is redirected to
@@ -36,40 +43,40 @@ use ReflectionMethod;
 readonly class AdminAuthMiddleware implements MiddlewareInterface
 {
     public function __construct(
-        private GuardInterface $guard,
+        private AdminGuardResolver $adminGuard,
         private AdminConfigInterface $adminConfig,
         private PermissionRegistryInterface $permissionRegistry,
     ) {}
 
     /**
-     * @throws HttpException|ReflectionException|UnauthenticatedException
+     * @throws AuthException|ConfigNotFoundException|HttpException|ReflectionException|UnauthenticatedException
      */
     public function handle(
         Request $request,
         callable $next,
     ): Response {
-        if (!$this->guard->check()) {
-            if (!$this->guard instanceof StatelessGuardInterface && !$request->wantsJson()) {
+        $guard = $this->adminGuard->guard();
+
+        if (!$guard->check()) {
+            if (!$guard instanceof StatelessGuardInterface && !$request->wantsJson()) {
                 return Response::redirect($this->adminConfig->getRoutePrefix() . '/login');
             }
 
-            throw UnauthenticatedException::forGuard($this->guard);
+            throw UnauthenticatedException::forGuard($guard);
+        }
+
+        $user = $guard->user();
+
+        if (!$user instanceof AdminUserInterface) {
+            throw $this->forbidden(
+                "The user authenticated on guard '{$guard->getName()}' is not an admin user.",
+            );
         }
 
         $requiredPermission = $this->getRequiredPermission($request);
 
-        if ($requiredPermission !== null) {
-            $user = $this->guard->user();
-
-            if (!$user instanceof AdminUserInterface) {
-                throw $this->forbidden(
-                    "The authenticated user is not an admin user, so it cannot hold the required permission '$requiredPermission'.",
-                );
-            }
-
-            if (!$this->userHasPermission($user, $requiredPermission)) {
-                throw $this->forbidden("Admin user lacks the required permission '$requiredPermission'.");
-            }
+        if ($requiredPermission !== null && !$this->userHasPermission($user, $requiredPermission)) {
+            throw $this->forbidden("Admin user lacks the required permission '$requiredPermission'.");
         }
 
         return $next($request);
