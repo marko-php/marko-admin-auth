@@ -14,7 +14,9 @@
     },
     "require-dev": {
         "pestphp/pest": "^4.0",
-        "marko/testing": "self.version"
+        "marko/testing": "self.version",
+        "marko/database-mysql": "self.version",
+        "marko/database-pgsql": "self.version"
     },
     "autoload": {
         "psr-4": {

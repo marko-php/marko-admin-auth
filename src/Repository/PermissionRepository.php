@@ -27,26 +27,15 @@ class PermissionRepository extends Repository implements PermissionRepositoryInt
     /**
      * Find all permissions in a group.
      *
+     * The group column is a reserved word; findBy() quotes it through the connection, so this works on every
+     * driver.
+     *
      * @return array<Permission>
      */
     public function findByGroup(
         string $group,
     ): array {
-        $sql = sprintf(
-            'SELECT * FROM %s WHERE `group` = ?',
-            $this->metadata->tableName,
-        );
-
-        $rows = $this->connection->query($sql, [$group]);
-
-        return array_map(
-            fn (array $row): Permission => $this->hydrator->hydrate(
-                static::ENTITY_CLASS,
-                $row,
-                $this->metadata,
-            ),
-            $rows,
-        );
+        return $this->findBy(['group' => $group])->toArray();
     }
 
     /**

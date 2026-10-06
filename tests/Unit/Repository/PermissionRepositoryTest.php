@@ -163,8 +163,14 @@ it('provides findByGroup method for group lookups', function (): void {
     expect($permissions)->toHaveCount(2)
         ->and($permissions[0])->toBeInstanceOf(Permission::class)
         ->and($permissions[0]->group)->toBe('blog')
-        ->and($queryHistory[0]['sql'])->toContain('`group` = ?')
+        ->and($queryHistory[0]['sql'])->toContain('"group" = ?')
         ->and($queryHistory[0]['bindings'])->toContain('blog');
+});
+
+it('contains no driver-specific identifier quoting in PermissionRepository', function (): void {
+    $source = (string) file_get_contents(dirname(__DIR__, 3) . '/src/Repository/PermissionRepository.php');
+
+    expect($source)->not->toContain('`');
 });
 
 it('syncs permissions from registry when passed as parameter', function (): void {
@@ -212,7 +218,7 @@ it('syncs permissions from registry to database creating new and preserving exis
     // Should have queried for both permissions by key
     $findByKeyQueries = array_filter(
         $queryHistory,
-        fn (array $entry): bool => str_contains($entry['sql'], 'SELECT') && str_contains($entry['sql'], 'key = ?'),
+        fn (array $entry): bool => str_contains($entry['sql'], 'SELECT') && str_contains($entry['sql'], '"key" = ?'),
     );
     expect(count($findByKeyQueries))->toBe(2);
 
@@ -323,6 +329,12 @@ function createPermissionMockConnectionWithHistory(
         {
             return false;
         }
+
+        public function quoteIdentifier(
+            string $identifier,
+        ): string {
+            return '"' . str_replace('"', '""', $identifier) . '"';
+        }
     };
 }
 
@@ -362,7 +374,7 @@ function createPermissionSyncMockConnection(
             $this->queryHistory[] = ['sql' => $sql, 'bindings' => $bindings];
 
             // For findByKey lookups (SELECT with key = ?)
-            if (str_contains($sql, 'key = ?')) {
+            if (str_contains($sql, '"key" = ?')) {
                 $this->callCount++;
                 // First call: existing permission found
                 if ($this->callCount === 1) {
@@ -412,6 +424,12 @@ function createPermissionSyncMockConnection(
         public function supportsReturning(): bool
         {
             return false;
+        }
+
+        public function quoteIdentifier(
+            string $identifier,
+        ): string {
+            return '"' . str_replace('"', '""', $identifier) . '"';
         }
     };
 }

@@ -96,7 +96,7 @@ it('checks if slug is unique via isSlugUnique method', function (): void {
     $isUnique = $repository->isSlugUnique('new-unique-slug');
 
     expect($isUnique)->toBeTrue()
-        ->and($queryHistory[0]['sql'])->toContain('slug = ?')
+        ->and($queryHistory[0]['sql'])->toContain('"slug" = ?')
         ->and($queryHistory[0]['bindings'])->toContain('new-unique-slug');
 });
 
@@ -113,8 +113,8 @@ it('checks slug uniqueness excludes given id', function (): void {
     $isUnique = $repository->isSlugUnique('existing-slug', 5);
 
     expect($isUnique)->toBeTrue()
-        ->and($queryHistory[0]['sql'])->toContain('slug = ?')
-        ->and($queryHistory[0]['sql'])->toContain('id != ?')
+        ->and($queryHistory[0]['sql'])->toContain('"slug" = ?')
+        ->and($queryHistory[0]['sql'])->toContain('"id" != ?')
         ->and($queryHistory[0]['bindings'])->toBe(['existing-slug', 5]);
 });
 
@@ -509,6 +509,12 @@ function createRoleSavepointConnection(
             return false;
         }
 
+        public function quoteIdentifier(
+            string $identifier,
+        ): string {
+            return '"' . str_replace('"', '""', $identifier) . '"';
+        }
+
         public function beginTransaction(): void
         {
             $this->txLog[] = ['op' => 'beginTransaction'];
@@ -684,6 +690,12 @@ function createRoleMockConnectionWithHistory(
         public function supportsReturning(): bool
         {
             return false;
+        }
+
+        public function quoteIdentifier(
+            string $identifier,
+        ): string {
+            return '"' . str_replace('"', '""', $identifier) . '"';
         }
     };
 }
