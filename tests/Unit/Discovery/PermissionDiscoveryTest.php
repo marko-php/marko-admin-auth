@@ -53,8 +53,42 @@ it('throws AdminException when the class does not implement AdminSectionInterfac
         sectionDiscovery: new AdminSectionDiscovery(),
     );
 
-    expect(fn () => $discovery->discoverFromClass(DiscoveryNotASection::class))
-        ->toThrow(AdminException::class);
+    expect(fn () => $discovery->discoverFromClass(DiscoveryMarkedWithoutInterface::class))
+        ->toThrow(AdminException::class, 'does not implement AdminSectionInterface');
+});
+
+it('surfaces the missing AdminSection attribute exception unchanged', function (): void {
+    $discovery = new PermissionDiscovery(
+        registry: new PermissionRegistry(),
+        sectionDiscovery: new AdminSectionDiscovery(),
+    );
+
+    try {
+        $discovery->discoverFromClass(DiscoveryNotASection::class);
+        $this->fail('Expected AdminException was not thrown');
+    } catch (AdminException $e) {
+        $expected = AdminException::missingSectionAttribute(DiscoveryNotASection::class);
+
+        expect($e::class)->toBe(AdminException::class)
+            ->and($e->getMessage())->toBe($expected->getMessage())
+            ->and($e->getContext())->toBe($expected->getContext())
+            ->and($e->getSuggestion())->toBe($expected->getSuggestion());
+    }
+});
+
+it('registers no permissions when the class has no AdminSection attribute', function (): void {
+    $registry = new PermissionRegistry();
+    $discovery = new PermissionDiscovery(
+        registry: $registry,
+        sectionDiscovery: new AdminSectionDiscovery(),
+    );
+
+    try {
+        $discovery->discoverFromClass(DiscoveryNotASection::class);
+    } catch (AdminException) {
+    }
+
+    expect($registry->all())->toBeEmpty();
 });
 
 it('throws ReflectionException when the class does not exist', function (): void {
@@ -78,7 +112,7 @@ it('registers nothing when discovery fails', function (): void {
     );
 
     try {
-        $discovery->discoverFromClass(DiscoveryNotASection::class);
+        $discovery->discoverFromClass(DiscoveryMarkedWithoutInterface::class);
     } catch (AdminException) {
     }
 
@@ -88,6 +122,10 @@ it('registers nothing when discovery fails', function (): void {
 // Test fixture classes
 #[AdminPermission(id: 'reports.view', label: 'View Reports')]
 class DiscoveryNotASection {}
+
+#[AdminSection(id: 'reports', label: 'Reports')]
+#[AdminPermission(id: 'reports.export', label: 'Export Reports')]
+class DiscoveryMarkedWithoutInterface {}
 
 #[AdminSection(id: 'blog', label: 'Blog', icon: 'pencil', sortOrder: 10)]
 #[AdminPermission(id: 'blog.posts.create', label: 'Create Posts')]
