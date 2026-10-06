@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Marko\AdminAuth\Tests\Unit\Repository;
 
-use DateTimeImmutable;
 use Marko\AdminAuth\Entity\AdminUser;
 use Marko\AdminAuth\Entity\AdminUserInterface;
 use Marko\AdminAuth\Entity\Role;
@@ -265,66 +264,53 @@ it('stamps AdminUserCreated and AdminUserUpdated with the repository\'s current 
         ->and(findDispatchedEvent($updateDispatcher, AdminUserUpdated::class)->getTimestamp())->toEqual($clock->now());
 });
 
+it('stamps admin-auth events in UTC from the injected clock', function (): void {
+    $eventDispatcher = new FakeEventDispatcher();
+    $clock = new FakeClock('2026-10-05 14:00:00+02:00');
+    $repository = createClockedRoleRepository($clock, createEventMockConnection(), $eventDispatcher);
+
+    $role = new Role();
+    $role->name = 'Viewer';
+    $role->slug = 'viewer';
+
+    $repository->save($role);
+
+    expect(findDispatchedEvent($eventDispatcher, RoleCreated::class)->getTimestamp()->format('Y-m-d H:i:s e'))
+        ->toBe('2026-10-05 12:00:00 UTC');
+});
+
 /**
- * A RoleRepository whose current instant (the database Repository::now() seam) reads a FakeClock.
+ * A RoleRepository whose current instant (the database Repository::now() seam) reads the given clock.
  */
 function createClockedRoleRepository(
     FakeClock $clock,
     ConnectionInterface $connection,
     FakeEventDispatcher $eventDispatcher,
 ): RoleRepository {
-    return new class ($clock, $connection, $eventDispatcher) extends RoleRepository
-    {
-        public function __construct(
-            private readonly FakeClock $clock,
-            ConnectionInterface $connection,
-            FakeEventDispatcher $eventDispatcher,
-        ) {
-            parent::__construct(
-                $connection,
-                new EntityMetadataFactory(),
-                new EntityHydrator(),
-                null,
-                $eventDispatcher,
-            );
-        }
-
-        protected function now(): DateTimeImmutable
-        {
-            return $this->clock->now();
-        }
-    };
+    return new RoleRepository(
+        $connection,
+        new EntityMetadataFactory(),
+        new EntityHydrator(),
+        eventDispatcher: $eventDispatcher,
+        clock: $clock,
+    );
 }
 
 /**
- * An AdminUserRepository whose current instant (the database Repository::now() seam) reads a FakeClock.
+ * An AdminUserRepository whose current instant (the database Repository::now() seam) reads the given clock.
  */
 function createClockedAdminUserRepository(
     FakeClock $clock,
     ConnectionInterface $connection,
     FakeEventDispatcher $eventDispatcher,
 ): AdminUserRepository {
-    return new class ($clock, $connection, $eventDispatcher) extends AdminUserRepository
-    {
-        public function __construct(
-            private readonly FakeClock $clock,
-            ConnectionInterface $connection,
-            FakeEventDispatcher $eventDispatcher,
-        ) {
-            parent::__construct(
-                $connection,
-                new EntityMetadataFactory(),
-                new EntityHydrator(),
-                null,
-                $eventDispatcher,
-            );
-        }
-
-        protected function now(): DateTimeImmutable
-        {
-            return $this->clock->now();
-        }
-    };
+    return new AdminUserRepository(
+        $connection,
+        new EntityMetadataFactory(),
+        new EntityHydrator(),
+        eventDispatcher: $eventDispatcher,
+        clock: $clock,
+    );
 }
 
 function findDispatchedEvent(
