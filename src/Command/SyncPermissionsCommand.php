@@ -39,6 +39,7 @@ use Throwable;
     name: 'admin-auth:permissions:sync',
     description: 'Write the registered admin permissions to the database (--prune deletes unregistered ones)',
     flags: ['prune', 'force'],
+    destructive: true,
 )]
 readonly class SyncPermissionsCommand implements CommandInterface
 {
