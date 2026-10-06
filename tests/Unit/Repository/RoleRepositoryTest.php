@@ -7,6 +7,7 @@ namespace Marko\AdminAuth\Tests\Unit\Repository;
 use Closure;
 use Marko\AdminAuth\Entity\Permission;
 use Marko\AdminAuth\Entity\Role;
+use Marko\AdminAuth\Exceptions\AdminAuthException;
 use Marko\AdminAuth\Repository\RoleRepository;
 use Marko\AdminAuth\Repository\RoleRepositoryInterface;
 use Marko\Database\Connection\ConnectionInterface;
@@ -98,6 +99,75 @@ it('checks if slug is unique via isSlugUnique method', function (): void {
     expect($isUnique)->toBeTrue()
         ->and($queryHistory[0]['sql'])->toContain('"slug" = ?')
         ->and($queryHistory[0]['bindings'])->toContain('new-unique-slug');
+});
+
+it('throws invalidRoleSlug when saving a role with a non-canonical slug', function (): void {
+    $queryHistory = [];
+    $connection = createRoleMockConnectionWithHistory([], $queryHistory);
+    $metadataFactory = new EntityMetadataFactory();
+    $repository = new RoleRepository($connection, $metadataFactory, new EntityHydrator($metadataFactory));
+
+    $role = new Role();
+    $role->name = 'Editor';
+    $role->slug = 'Editor';
+
+    expect(fn () => $repository->save($role))
+        ->toThrow(AdminAuthException::class, "Role slug 'Editor' is not a valid role slug")
+        ->and($queryHistory)->toBe([]);
+});
+
+it('saves a role with a canonical slug', function (): void {
+    $queryHistory = [];
+    $connection = createRoleMockConnectionWithHistory([], $queryHistory);
+    $metadataFactory = new EntityMetadataFactory();
+    $repository = new RoleRepository($connection, $metadataFactory, new EntityHydrator($metadataFactory));
+
+    $role = new Role();
+    $role->name = 'Content Editor';
+    $role->slug = 'content-editor';
+    $repository->save($role);
+
+    expect($queryHistory[0]['sql'])->toStartWith('INSERT')
+        ->and($queryHistory[0]['bindings'])->toContain('content-editor');
+});
+
+it('throws invalidRoleSlug from insertBatch and inserts nothing when any slug is non-canonical', function (): void {
+    $queryHistory = [];
+    $connection = createRoleMockConnectionWithHistory([], $queryHistory);
+    $metadataFactory = new EntityMetadataFactory();
+    $repository = new RoleRepository($connection, $metadataFactory, new EntityHydrator($metadataFactory));
+
+    $editor = new Role();
+    $editor->name = 'Editor';
+    $editor->slug = 'editor';
+    $author = new Role();
+    $author->name = 'Author';
+    $author->slug = 'Author';
+
+    expect(fn () => $repository->insertBatch([$editor, $author]))
+        ->toThrow(AdminAuthException::class, "Role slug 'Author' is not a valid role slug")
+        ->and($queryHistory)->toBe([]);
+});
+
+it('throws invalidRoleSlug from isSlugUnique for a non-canonical slug', function (): void {
+    $queryHistory = [];
+    $connection = createRoleMockConnectionWithHistory([], $queryHistory);
+    $repository = new RoleRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
+
+    expect(fn () => $repository->isSlugUnique('Editor'))
+        ->toThrow(AdminAuthException::class, "Role slug 'Editor' is not a valid role slug")
+        ->and($queryHistory)->toBe([]);
+});
+
+it('returns null from findBySlug for a non-canonical slug without querying', function (): void {
+    $queryHistory = [];
+    $connection = createRoleMockConnectionWithHistory([
+        ['id' => 1, 'name' => 'Editor', 'slug' => 'editor', 'is_super_admin' => '0'],
+    ], $queryHistory);
+    $repository = new RoleRepository($connection, new EntityMetadataFactory(), new EntityHydrator());
+
+    expect($repository->findBySlug('Editor'))->toBeNull()
+        ->and($queryHistory)->toBe([]);
 });
 
 it('checks slug uniqueness excludes given id', function (): void {

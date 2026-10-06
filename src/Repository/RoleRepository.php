@@ -9,8 +9,11 @@ use Marko\AdminAuth\Entity\Role;
 use Marko\AdminAuth\Events\RoleCreated;
 use Marko\AdminAuth\Events\RoleDeleted;
 use Marko\AdminAuth\Events\RoleUpdated;
+use Marko\AdminAuth\Exceptions\AdminAuthException;
+use Marko\AdminAuth\IdentifierFormat;
 use Marko\Database\Connection\TransactionInterface;
 use Marko\Database\Entity\Entity;
+use Marko\Database\Exceptions\BatchInsertException;
 use Marko\Database\Exceptions\EntityException;
 use Marko\Database\Exceptions\RepositoryException;
 use Marko\Database\Repository\Repository;
@@ -28,7 +31,7 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
     /**
      * Save a role, dispatching appropriate events.
      *
-     * @throws RepositoryException
+     * @throws AdminAuthException|RepositoryException
      */
     public function save(
         Entity $entity,
@@ -39,11 +42,42 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
             return;
         }
 
+        $this->assertCanonicalSlug($entity);
+
         $isNew = $entity->id === null;
 
         parent::save($entity);
 
         $this->dispatchSaveEvent($entity, $isNew);
+    }
+
+    /**
+     * Insert roles whose slugs all match IdentifierFormat::ROLE_SLUG_PATTERN; nothing is inserted otherwise.
+     *
+     * @param array<Entity> $entities
+     * @throws AdminAuthException|BatchInsertException|RepositoryException|Throwable
+     */
+    public function insertBatch(
+        array $entities,
+    ): void {
+        foreach ($entities as $entity) {
+            if ($entity instanceof Role) {
+                $this->assertCanonicalSlug($entity);
+            }
+        }
+
+        parent::insertBatch($entities);
+    }
+
+    /**
+     * @throws AdminAuthException
+     */
+    private function assertCanonicalSlug(
+        Role $role,
+    ): void {
+        if (!IdentifierFormat::isRoleSlug($role->slug)) {
+            throw AdminAuthException::invalidRoleSlug($role->slug);
+        }
     }
 
     /**
@@ -91,10 +125,17 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
 
     /**
      * Find a role by its slug.
+     *
+     * A slug outside IdentifierFormat::ROLE_SLUG_PATTERN can't be stored, so it returns null without a query
+     * (on MySQL/MariaDB the collation would otherwise match "Editor" to "editor").
      */
     public function findBySlug(
         string $slug,
     ): ?Role {
+        if (!IdentifierFormat::isRoleSlug($slug)) {
+            return null;
+        }
+
         return $this->findOneBy(['slug' => $slug]);
     }
 
@@ -210,11 +251,18 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
 
     /**
      * Check if a slug is unique within the roles table.
+     *
+     * @throws AdminAuthException When the slug is outside IdentifierFormat::ROLE_SLUG_PATTERN, since save() would
+     *     reject it
      */
     public function isSlugUnique(
         string $slug,
         ?int $excludeId = null,
     ): bool {
+        if (!IdentifierFormat::isRoleSlug($slug)) {
+            throw AdminAuthException::invalidRoleSlug($slug);
+        }
+
         return $this->isColumnUnique('slug', $slug, $excludeId);
     }
 }

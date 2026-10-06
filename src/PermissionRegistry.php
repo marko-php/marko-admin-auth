@@ -20,6 +20,10 @@ class PermissionRegistry implements PermissionRegistryInterface
         string $label,
         string $group,
     ): void {
+        if (!IdentifierFormat::isPermissionKey($key)) {
+            throw AdminAuthException::invalidPermissionKey($key);
+        }
+
         if (isset($this->permissions[$key])) {
             throw AdminAuthException::duplicatePermission($key);
         }

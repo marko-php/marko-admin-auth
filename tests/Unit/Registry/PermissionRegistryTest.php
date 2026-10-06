@@ -101,6 +101,37 @@ it('throws AdminAuthException when registering duplicate permission key', functi
     );
 })->throws(AdminAuthException::class, "Permission with key 'blog.posts.create' is already registered");
 
+it('throws invalidPermissionKey when registering a key with uppercase letters', function (): void {
+    $registry = new PermissionRegistry();
+
+    $registry->register(
+        key: 'Blog.Posts.Edit',
+        label: 'Edit Posts',
+        group: 'blog',
+    );
+})->throws(AdminAuthException::class, "Permission key 'Blog.Posts.Edit' is not a valid permission key");
+
+it('registers nothing when the key is invalid', function (): void {
+    $registry = new PermissionRegistry();
+
+    try {
+        $registry->register(key: 'blog.posts edit', label: 'Edit Posts', group: 'blog');
+    } catch (AdminAuthException) {
+        // Expected
+    }
+
+    expect($registry->all())->toBe([]);
+});
+
+it('rejects a case variant of a registered key instead of registering a second permission', function (): void {
+    $registry = new PermissionRegistry();
+    $registry->register(key: 'posts.edit', label: 'Edit Posts', group: 'posts');
+
+    expect(fn () => $registry->register(key: 'Posts.edit', label: 'Edit Posts', group: 'posts'))
+        ->toThrow(AdminAuthException::class, "Permission key 'Posts.edit' is not a valid permission key")
+        ->and($registry->all())->toHaveCount(1);
+});
+
 it('supports wildcard permission matching with asterisk', function (): void {
     $registry = new PermissionRegistry();
 

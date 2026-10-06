@@ -188,6 +188,60 @@ it('throws duplicatePermission naming both classes when two sections declare the
     );
 });
 
+it('throws invalidPermissionKey naming the section class for an invalid AdminPermission id', function (): void {
+    $discovery = new PermissionDiscovery(
+        registry: new PermissionRegistry(),
+        sectionDiscovery: new AdminSectionDiscovery(),
+    );
+
+    expect(fn () => $discovery->registerFromDefinitions([
+        new AdminSectionDefinition(
+            className: 'App\\Admin\\PostsSection',
+            id: 'posts',
+            label: 'Posts',
+            icon: '',
+            sortOrder: 0,
+            permissions: [new AdminPermissionDefinition(id: 'Posts.Edit', label: 'Edit Posts')],
+        ),
+    ]))->toThrow(
+        AdminAuthException::class,
+        "Permission key 'Posts.Edit' declared by #[AdminPermission] on 'App\\Admin\\PostsSection' is not a valid "
+        . 'permission key',
+    );
+});
+
+it('registers no permissions from any section when one declared key is invalid', function (): void {
+    $registry = new PermissionRegistry();
+    $discovery = new PermissionDiscovery(
+        registry: $registry,
+        sectionDiscovery: new AdminSectionDiscovery(),
+    );
+
+    try {
+        $discovery->registerFromDefinitions([
+            new AdminSectionDefinition(
+                className: 'App\\Admin\\CatalogSection',
+                id: 'catalog',
+                label: 'Catalog',
+                icon: '',
+                sortOrder: 0,
+                permissions: [new AdminPermissionDefinition(id: 'catalog.products.view', label: 'View Products')],
+            ),
+            new AdminSectionDefinition(
+                className: 'App\\Admin\\PostsSection',
+                id: 'posts',
+                label: 'Posts',
+                icon: '',
+                sortOrder: 0,
+                permissions: [new AdminPermissionDefinition(id: 'posts.Edit', label: 'Edit Posts')],
+            ),
+        ]);
+        $this->fail('Expected AdminAuthException was not thrown');
+    } catch (AdminAuthException) {
+        expect($registry->all())->toBe([]);
+    }
+});
+
 it(
     'names the section class and suggests removing the manual registration when a key was already registered by hand',
     function (): void {

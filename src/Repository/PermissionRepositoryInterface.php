@@ -15,7 +15,7 @@ use Throwable;
 interface PermissionRepositoryInterface extends RepositoryInterface
 {
     /**
-     * Find a permission by its key.
+     * Find a permission by its key. Returns null for a key outside IdentifierFormat::PERMISSION_KEY_PATTERN.
      */
     public function findByKey(
         string $key,

@@ -9,9 +9,11 @@ use Marko\AdminAuth\Entity\Role;
 use Marko\AdminAuth\Events\AdminUserCreated;
 use Marko\AdminAuth\Events\AdminUserUpdated;
 use Marko\Database\Entity\Entity;
+use Marko\Database\Exceptions\BatchInsertException;
 use Marko\Database\Exceptions\EntityException;
 use Marko\Database\Exceptions\RepositoryException;
 use Marko\Database\Repository\Repository;
+use Throwable;
 
 /**
  * @extends Repository<AdminUser>
@@ -21,12 +23,15 @@ class AdminUserRepository extends Repository implements AdminUserRepositoryInter
     protected const string ENTITY_CLASS = AdminUser::class;
 
     /**
-     * Find an admin user by email address.
+     * Find an admin user by email address, compared in lowercase.
+     *
+     * Emails are stored lowercased by save(), so the lookup finds the same row on every driver whatever the
+     * column's collation.
      */
     public function findByEmail(
         string $email,
     ): ?AdminUser {
-        return $this->findOneBy(['email' => $email]);
+        return $this->findOneBy(['email' => mb_strtolower($email)]);
     }
 
     /**
@@ -77,7 +82,10 @@ class AdminUserRepository extends Repository implements AdminUserRepositoryInter
     }
 
     /**
-     * Save an admin user, dispatching appropriate events.
+     * Save an admin user with its email lowercased, dispatching appropriate events.
+     *
+     * Lowercasing makes the unique email index reject a case variant of an existing address on every driver,
+     * not only on MySQL/MariaDB's case-insensitive collations.
      *
      * @throws RepositoryException
      */
@@ -90,11 +98,30 @@ class AdminUserRepository extends Repository implements AdminUserRepositoryInter
             return;
         }
 
+        $entity->email = mb_strtolower($entity->email);
         $isNew = $entity->id === null;
 
         parent::save($entity);
 
         $this->dispatchSaveEvent($entity, $isNew);
+    }
+
+    /**
+     * Insert admin users with their emails lowercased, as save() stores them.
+     *
+     * @param array<Entity> $entities
+     * @throws BatchInsertException|RepositoryException|Throwable
+     */
+    public function insertBatch(
+        array $entities,
+    ): void {
+        foreach ($entities as $entity) {
+            if ($entity instanceof AdminUser) {
+                $entity->email = mb_strtolower($entity->email);
+            }
+        }
+
+        parent::insertBatch($entities);
     }
 
     private function dispatchSaveEvent(

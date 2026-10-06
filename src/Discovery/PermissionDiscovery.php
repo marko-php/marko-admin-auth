@@ -9,6 +9,7 @@ use Marko\Admin\Discovery\AdminSectionDiscovery;
 use Marko\Admin\Exceptions\AdminException;
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
 use Marko\AdminAuth\Exceptions\AdminAuthException;
+use Marko\AdminAuth\IdentifierFormat;
 use ReflectionException;
 
 readonly class PermissionDiscovery
@@ -33,8 +34,9 @@ readonly class PermissionDiscovery
     /**
      * Register the #[AdminPermission] entries of already-parsed admin sections.
      *
-     * Each permission is grouped by the first segment of its key. Two sections that
-     * declare the same key fail loudly, naming both section classes.
+     * Each permission is grouped by the first segment of its key. A key outside
+     * IdentifierFormat::PERMISSION_KEY_PATTERN, or two sections that declare the same
+     * key, fail loudly naming the section class(es) before anything is registered.
      *
      * @param array<AdminSectionDefinition> $definitions
      * @throws AdminAuthException
@@ -47,6 +49,10 @@ readonly class PermissionDiscovery
 
         foreach ($definitions as $definition) {
             foreach ($definition->permissions as $permission) {
+                if (!IdentifierFormat::isPermissionKey($permission->id)) {
+                    throw AdminAuthException::invalidPermissionKey($permission->id, $definition->className);
+                }
+
                 if (isset($declaredBy[$permission->id])) {
                     throw AdminAuthException::duplicatePermission(
                         $permission->id,

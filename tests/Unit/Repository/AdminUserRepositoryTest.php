@@ -80,6 +80,76 @@ it('provides findByEmail convenience method for email lookups', function (): voi
         ->and($user->email)->toBe('admin@example.com');
 });
 
+it('looks up findByEmail with the lowercased email', function (): void {
+    $queryHistory = [];
+    $connection = createAdminUserMockConnectionWithHistory([], $queryHistory);
+    $metadataFactory = new EntityMetadataFactory();
+
+    $repository = new AdminUserRepository($connection, $metadataFactory, new EntityHydrator());
+    $repository->findByEmail('Mark@Example.COM');
+
+    expect($queryHistory[0]['bindings'])->toBe(['mark@example.com']);
+});
+
+it('lowercases the email when saving an admin user', function (): void {
+    $queryHistory = [];
+    $connection = createAdminUserMockConnectionWithHistory([], $queryHistory);
+    $metadataFactory = new EntityMetadataFactory();
+    $repository = new AdminUserRepository($connection, $metadataFactory, new EntityHydrator($metadataFactory));
+
+    $user = new AdminUser();
+    $user->email = 'Mark@Example.COM';
+    $user->password = 'hash';
+    $user->name = 'Mark';
+    $repository->save($user);
+
+    expect($user->email)->toBe('mark@example.com')
+        ->and($queryHistory[0]['sql'])->toStartWith('INSERT')
+        ->and($queryHistory[0]['bindings'])->toContain('mark@example.com')
+        ->and($queryHistory[0]['bindings'])->not->toContain('Mark@Example.COM');
+});
+
+it('lowercases emails in insertBatch', function (): void {
+    $queryHistory = [];
+    $connection = createAdminUserMockConnectionWithHistory([], $queryHistory);
+    $metadataFactory = new EntityMetadataFactory();
+    $repository = new AdminUserRepository($connection, $metadataFactory, new EntityHydrator($metadataFactory));
+
+    $first = new AdminUser();
+    $first->email = 'First@Example.com';
+    $first->password = 'hash';
+    $first->name = 'First';
+    $second = new AdminUser();
+    $second->email = 'SECOND@example.com';
+    $second->password = 'hash';
+    $second->name = 'Second';
+    $repository->insertBatch([$first, $second]);
+
+    $insert = array_find($queryHistory, fn (array $entry): bool => str_starts_with($entry['sql'], 'INSERT'));
+
+    expect($first->email)->toBe('first@example.com')
+        ->and($second->email)->toBe('second@example.com')
+        ->and($insert['bindings'])->toContain('first@example.com')
+        ->and($insert['bindings'])->toContain('second@example.com');
+});
+
+it('lowercases multibyte characters in the email', function (): void {
+    $queryHistory = [];
+    $connection = createAdminUserMockConnectionWithHistory([], $queryHistory);
+    $metadataFactory = new EntityMetadataFactory();
+    $repository = new AdminUserRepository($connection, $metadataFactory, new EntityHydrator($metadataFactory));
+
+    $user = new AdminUser();
+    $user->email = 'ÉLODIE@Example.com';
+    $user->password = 'hash';
+    $user->name = 'Élodie';
+    $repository->save($user);
+    $repository->findByEmail('Élodie@EXAMPLE.com');
+
+    expect($user->email)->toBe('élodie@example.com')
+        ->and($queryHistory[1]['bindings'])->toBe(['élodie@example.com']);
+});
+
 it('loads roles for a user via getRolesForUser', function (): void {
     $queryHistory = [];
     $connection = createAdminUserMockConnectionWithHistory(

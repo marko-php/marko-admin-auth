@@ -6,7 +6,12 @@ namespace Marko\AdminAuth\Repository;
 
 use Marko\AdminAuth\Contracts\PermissionRegistryInterface;
 use Marko\AdminAuth\Entity\Permission;
+use Marko\AdminAuth\Exceptions\AdminAuthException;
+use Marko\AdminAuth\IdentifierFormat;
 use Marko\Database\Connection\TransactionInterface;
+use Marko\Database\Entity\Entity;
+use Marko\Database\Exceptions\BatchInsertException;
+use Marko\Database\Exceptions\RepositoryException;
 use Marko\Database\Repository\Repository;
 use Throwable;
 
@@ -20,11 +25,51 @@ class PermissionRepository extends Repository implements PermissionRepositoryInt
     private const int ROWS_PER_CHUNK = 500;
 
     /**
+     * Save a permission whose key matches IdentifierFormat::PERMISSION_KEY_PATTERN.
+     *
+     * @throws AdminAuthException|RepositoryException
+     */
+    public function save(
+        Entity $entity,
+    ): void {
+        if ($entity instanceof Permission) {
+            $this->assertCanonicalKey($entity);
+        }
+
+        parent::save($entity);
+    }
+
+    /**
+     * Insert permissions whose keys all match IdentifierFormat::PERMISSION_KEY_PATTERN; nothing is inserted otherwise.
+     *
+     * @param array<Entity> $entities
+     * @throws AdminAuthException|BatchInsertException|RepositoryException|Throwable
+     */
+    public function insertBatch(
+        array $entities,
+    ): void {
+        foreach ($entities as $entity) {
+            if ($entity instanceof Permission) {
+                $this->assertCanonicalKey($entity);
+            }
+        }
+
+        parent::insertBatch($entities);
+    }
+
+    /**
      * Find a permission by its key.
+     *
+     * A key outside IdentifierFormat::PERMISSION_KEY_PATTERN can't be saved, so it returns null without a query (on
+     * MySQL/MariaDB the collation would otherwise match "Posts.Edit" to "posts.edit").
      */
     public function findByKey(
         string $key,
     ): ?Permission {
+        if (!IdentifierFormat::isPermissionKey($key)) {
+            return null;
+        }
+
         return $this->findOneBy(['key' => $key]);
     }
 
@@ -61,6 +106,23 @@ class PermissionRepository extends Repository implements PermissionRepositoryInt
 
             foreach ($registry->all() as $registered) {
                 $permission = $permissions[$registered->key] ?? null;
+
+                if ($permission === null) {
+                    $permission = $this->caseVariantOf($registered->key, $permissions);
+                }
+
+                if ($permission !== null && $permission->key !== $registered->key) {
+                    unset($permissions[$permission->key]);
+                    $permission->key = $registered->key;
+                    $permission->label = $registered->label;
+                    $permission->group = $registered->group;
+                    $permissions[$registered->key] = $permission;
+
+                    $this->save($permission);
+                    $updated[] = $registered->key;
+
+                    continue;
+                }
 
                 if ($permission === null) {
                     $permission = new Permission();
@@ -171,6 +233,40 @@ class PermissionRepository extends Repository implements PermissionRepositoryInt
         }
 
         return $permissions;
+    }
+
+    /**
+     * The stored row, with the lowest id, whose key differs from the registered key only in letter case.
+     *
+     * Such a row predates the lowercase key format. Inserting the registered key next to it would fail on the
+     * MySQL/MariaDB unique index (their default collations ignore case) and add a second row on PostgreSQL, so
+     * sync renames it instead, keeping its id and role assignments, and every driver ends with the same table.
+     *
+     * @param array<string, Permission> $permissions
+     */
+    private function caseVariantOf(
+        string $registeredKey,
+        array $permissions,
+    ): ?Permission {
+        $variants = array_filter(
+            $permissions,
+            fn (Permission $permission): bool => $permission->key !== $registeredKey
+                && strtolower($permission->key) === $registeredKey,
+        );
+        usort($variants, fn (Permission $a, Permission $b): int => (int) $a->id <=> (int) $b->id);
+
+        return $variants[0] ?? null;
+    }
+
+    /**
+     * @throws AdminAuthException
+     */
+    private function assertCanonicalKey(
+        Permission $permission,
+    ): void {
+        if (!IdentifierFormat::isPermissionKey($permission->key)) {
+            throw AdminAuthException::invalidPermissionKey($permission->key);
+        }
     }
 
     /**

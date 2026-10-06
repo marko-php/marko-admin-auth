@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Marko\AdminAuth\Entity\Permission;
+use Marko\AdminAuth\Exceptions\AdminAuthException;
 use Marko\AdminAuth\PermissionRegistry;
 use Marko\AdminAuth\Repository\PermissionRepository;
 use Marko\AdminAuth\Repository\PermissionRepositoryInterface;
@@ -137,6 +139,108 @@ it('declares syncFromRegistry returning PermissionSyncResult on the interface', 
     $method = new ReflectionMethod(PermissionRepositoryInterface::class, 'syncFromRegistry');
 
     expect((string) $method->getReturnType())->toBe(PermissionSyncResult::class);
+});
+
+it(
+    'renames a stored case variant of a registered key to the canonical key and keeps its role assignments',
+    function (): void {
+        $this->connection->addPermission('Posts.Edit', 'Edit Posts', 'Posts');
+        $this->connection->grant(1, 'Posts.Edit');
+        $this->registry->register('posts.edit', 'Edit Posts', 'posts');
+
+        $result = $this->repository->syncFromRegistry($this->registry);
+
+        expect($this->connection->permissions())->toBe([
+            'posts.edit' => ['label' => 'Edit Posts', 'group' => 'posts'],
+        ])
+            ->and($this->connection->keysForRole(1))->toBe(['posts.edit'])
+            ->and($this->connection->statements('INSERT'))->toBe([])
+            ->and($result->created)->toBe([])
+            ->and($result->unregistered)->toBe([]);
+    },
+);
+
+it('reports the renamed key as updated', function (): void {
+    $this->connection->addPermission('BLOG.Posts.view', 'View Posts', 'blog');
+    $this->registry->register('blog.posts.view', 'View Posts', 'blog');
+
+    $result = $this->repository->syncFromRegistry($this->registry);
+
+    expect($result->updated)->toBe(['blog.posts.view']);
+});
+
+it('matches the exact key and reports the case variant as unregistered when both are stored', function (): void {
+    $this->connection->addPermission('Posts.Edit', 'Edit Posts', 'posts');
+    $exactId = $this->connection->addPermission('posts.edit', 'Edit Posts', 'posts');
+    $this->connection->grant(1, 'Posts.Edit');
+    $this->registry->register('posts.edit', 'Edit Posts', 'posts');
+
+    $result = $this->repository->syncFromRegistry($this->registry);
+
+    expect($result->updated)->toBe([])
+        ->and($result->created)->toBe([])
+        ->and($result->unregistered)->toEqual([
+            new UnregisteredPermission(id: 1, key: 'Posts.Edit', label: 'Edit Posts', group: 'posts', roleCount: 1),
+        ])
+        ->and($this->repository->findByKey('posts.edit')?->id)->toBe($exactId);
+});
+
+it('renames only the lowest-id one of several stored case variants of the same registered key', function (): void {
+    $this->connection->addPermission('Posts.Edit', 'Edit Posts', 'posts');
+    $this->connection->addPermission('POSTS.EDIT', 'Edit Posts', 'posts');
+    $this->registry->register('posts.edit', 'Edit Posts', 'posts');
+
+    $result = $this->repository->syncFromRegistry($this->registry);
+
+    expect($this->repository->findByKey('posts.edit')?->id)->toBe(1)
+        ->and(array_keys($this->connection->permissions()))->toBe(['POSTS.EDIT', 'posts.edit'])
+        ->and($result->updated)->toBe(['posts.edit'])
+        ->and(array_map(fn (UnregisteredPermission $permission): string => $permission->key, $result->unregistered))
+        ->toBe(['POSTS.EDIT']);
+});
+
+it('throws invalidPermissionKey when saving a permission with a non-canonical key', function (): void {
+    $permission = new Permission();
+    $permission->key = 'Catalog.*';
+    $permission->label = 'All Catalog';
+    $permission->group = 'catalog';
+
+    expect(fn () => $this->repository->save($permission))
+        ->toThrow(AdminAuthException::class, "Permission key 'Catalog.*' is not a valid permission key")
+        ->and($this->connection->permissions())->toBe([]);
+});
+
+it('throws invalidPermissionKey when batch-inserting a permission with a non-canonical key', function (): void {
+    $valid = new Permission();
+    $valid->key = 'catalog.view';
+    $valid->label = 'View Catalog';
+    $valid->group = 'catalog';
+    $invalid = new Permission();
+    $invalid->key = 'Catalog.Edit';
+    $invalid->label = 'Edit Catalog';
+    $invalid->group = 'catalog';
+
+    expect(fn () => $this->repository->insertBatch([$valid, $invalid]))
+        ->toThrow(AdminAuthException::class, "Permission key 'Catalog.Edit' is not a valid permission key")
+        ->and($this->connection->permissions())->toBe([]);
+});
+
+it('saves a wildcard grant with a canonical key', function (): void {
+    $permission = new Permission();
+    $permission->key = 'catalog.*';
+    $permission->label = 'All Catalog';
+    $permission->group = 'catalog';
+
+    $this->repository->save($permission);
+
+    expect(array_keys($this->connection->permissions()))->toBe(['catalog.*']);
+});
+
+it('returns null from findByKey for a non-canonical key without querying', function (): void {
+    $this->connection->addPermission('Posts.Edit', 'Edit Posts', 'posts');
+
+    expect($this->repository->findByKey('Posts.Edit'))->toBeNull()
+        ->and($this->connection->statements('SELECT'))->toBe([]);
 });
 
 it('declares findUnregistered on the interface', function (): void {

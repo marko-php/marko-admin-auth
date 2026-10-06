@@ -248,6 +248,52 @@ class AdminAuthSchema
     }
 
     /**
+     * Insert a permission row with raw SQL, bypassing the repository's key validation, as a row written before
+     * keys had to be lowercase would be. Returns its id.
+     */
+    public static function legacyPermission(
+        ConnectionInterface $connection,
+        string $key,
+        string $label,
+        string $group,
+    ): int {
+        $connection->execute(
+            sprintf(
+                'INSERT INTO %s (%s, %s, %s) VALUES (?, ?, ?)',
+                $connection->quoteIdentifier('permissions'),
+                $connection->quoteIdentifier('key'),
+                $connection->quoteIdentifier('label'),
+                $connection->quoteIdentifier('group'),
+            ),
+            [$key, $label, $group],
+        );
+
+        $rows = $connection->query(
+            sprintf(
+                'SELECT %s FROM %s WHERE %s = ?',
+                $connection->quoteIdentifier('id'),
+                $connection->quoteIdentifier('permissions'),
+                $connection->quoteIdentifier('key'),
+            ),
+            [$key],
+        );
+
+        return (int) $rows[0]['id'];
+    }
+
+    /**
+     * The number of rows in a table.
+     */
+    public static function rowCount(
+        ConnectionInterface $connection,
+        string $table,
+    ): int {
+        $rows = $connection->query('SELECT COUNT(*) AS row_count FROM ' . $connection->quoteIdentifier($table));
+
+        return (int) $rows[0]['row_count'];
+    }
+
+    /**
      * The number of role_permissions rows pointing at a permission id.
      */
     public static function assignmentCount(

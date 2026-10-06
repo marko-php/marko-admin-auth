@@ -14,7 +14,7 @@ use Marko\Database\Repository\RepositoryInterface;
 interface AdminUserRepositoryInterface extends RepositoryInterface
 {
     /**
-     * Find an admin user by email address.
+     * Find an admin user by email address. Emails are stored and compared in lowercase.
      */
     public function findByEmail(
         string $email,

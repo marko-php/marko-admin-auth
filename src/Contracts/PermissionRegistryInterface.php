@@ -10,7 +10,7 @@ use Marko\AdminAuth\RegisteredPermission;
 interface PermissionRegistryInterface
 {
     /**
-     * @throws AdminAuthException When the key is already registered
+     * @throws AdminAuthException When the key is outside IdentifierFormat::PERMISSION_KEY_PATTERN or already registered
      */
     public function register(
         string $key,
