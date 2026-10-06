@@ -7,6 +7,7 @@ namespace Marko\AdminAuth\Repository;
 use Marko\AdminAuth\Entity\AdminUser;
 use Marko\AdminAuth\Entity\Role;
 use Marko\Database\Repository\RepositoryInterface;
+use Throwable;
 
 /**
  * Interface for AdminUser entity repository.
@@ -32,7 +33,13 @@ interface AdminUserRepositoryInterface extends RepositoryInterface
     /**
      * Sync roles for a user, replacing all existing.
      *
+     * Atomic: the delete and the batched inserts run in one transaction, so a failure (an unknown or repeated
+     * role id, a lost connection) leaves the user's previous roles in place. Inside a caller's transaction the
+     * sync runs in a savepoint; a failure undoes only the sync's changes, and the caller can catch it and still
+     * commit.
+     *
      * @param array<int> $roleIds
+     * @throws Throwable
      */
     public function syncRoles(
         int $userId,

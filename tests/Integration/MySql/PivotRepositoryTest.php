@@ -8,6 +8,7 @@ use Marko\AdminAuth\Entity\Permission;
 use Marko\AdminAuth\Entity\Role;
 use Marko\AdminAuth\PermissionRegistry;
 use Marko\AdminAuth\Tests\Integration\AdminAuthSchema;
+use Marko\Database\Exceptions\ForeignKeyConstraintViolationException;
 use Marko\Database\Exceptions\UniqueConstraintViolationException;
 use Marko\Database\MySql\Connection\MySqlConnection;
 use Marko\Database\MySql\Sql\MySqlGenerator;
@@ -47,6 +48,10 @@ beforeEach(function (): void {
     $this->roles = AdminAuthSchema::roleRepository($this->connection);
     $this->users = AdminAuthSchema::adminUserRepository($this->connection);
     $this->permissionId = fn (string $key): int => (int) $this->permissions->findByKey($key)?->id;
+    $this->roleSlugs = fn (int $userId): array => array_map(
+        fn (Role $role): string => $role->slug,
+        $this->users->getRolesForUser($userId),
+    );
     $this->keys = fn (array $permissions): array => array_map(
         fn (Permission $permission): string => $permission->key,
         $permissions,
@@ -137,11 +142,48 @@ describe('admin-auth pivots on MySQL', function (): void {
             ->and(($this->keys)($this->roles->getPermissionsForRole((int) $role->id)))->toBe(['blog.posts.edit']);
     });
 
-    it('rejects a duplicate user role', function (): void {
-        $role = AdminAuthSchema::roleWith($this->connection, 'editor', []);
-        $user = AdminAuthSchema::userWith($this->connection, 'editor@example.com', []);
+    it('rejects a duplicate user role and keeps the user\'s previous roles', function (): void {
+        $editor = AdminAuthSchema::roleWith($this->connection, 'editor', []);
+        $viewer = AdminAuthSchema::roleWith($this->connection, 'viewer', []);
+        $user = AdminAuthSchema::userWith($this->connection, 'editor@example.com', [(int) $editor->id]);
 
-        expect(fn () => $this->users->syncRoles((int) $user->id, [(int) $role->id, (int) $role->id]))
-            ->toThrow(UniqueConstraintViolationException::class);
+        expect(fn () => $this->users->syncRoles((int) $user->id, [(int) $viewer->id, (int) $viewer->id]))
+            ->toThrow(UniqueConstraintViolationException::class)
+            ->and(($this->roleSlugs)((int) $user->id))->toBe(['editor']);
+    });
+
+    it('rejects an unknown role id and keeps the user\'s previous roles', function (): void {
+        $editor = AdminAuthSchema::roleWith($this->connection, 'editor', []);
+        $viewer = AdminAuthSchema::roleWith($this->connection, 'viewer', []);
+        $user = AdminAuthSchema::userWith(
+            $this->connection,
+            'editor@example.com',
+            [(int) $editor->id, (int) $viewer->id],
+        );
+
+        expect(fn () => $this->users->syncRoles((int) $user->id, [(int) $viewer->id, 999_999]))
+            ->toThrow(ForeignKeyConstraintViolationException::class)
+            ->and(($this->roleSlugs)((int) $user->id))->toEqualCanonicalizing(['editor', 'viewer']);
+    });
+
+    it('lets the caller commit its own transaction after a failed role sync', function (): void {
+        $editor = AdminAuthSchema::roleWith($this->connection, 'editor', []);
+        $viewer = AdminAuthSchema::roleWith($this->connection, 'viewer', []);
+        $first = AdminAuthSchema::userWith($this->connection, 'first@example.com', [(int) $editor->id]);
+        $second = AdminAuthSchema::userWith($this->connection, 'second@example.com', []);
+
+        $this->connection->beginTransaction();
+        $this->users->syncRoles((int) $second->id, [(int) $viewer->id]);
+
+        try {
+            $this->users->syncRoles((int) $first->id, [(int) $viewer->id, 999_999]);
+        } catch (ForeignKeyConstraintViolationException) {
+            // The caller keeps its own work.
+        }
+
+        $this->connection->commit();
+
+        expect(($this->roleSlugs)((int) $first->id))->toBe(['editor'])
+            ->and(($this->roleSlugs)((int) $second->id))->toBe(['viewer']);
     });
 });

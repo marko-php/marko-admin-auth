@@ -11,7 +11,6 @@ use Marko\AdminAuth\Events\RoleDeleted;
 use Marko\AdminAuth\Events\RoleUpdated;
 use Marko\AdminAuth\Exceptions\AdminAuthException;
 use Marko\AdminAuth\IdentifierFormat;
-use Marko\Database\Connection\TransactionInterface;
 use Marko\Database\Entity\Entity;
 use Marko\Database\Exceptions\BatchInsertException;
 use Marko\Database\Exceptions\EntityException;
@@ -25,8 +24,6 @@ use Throwable;
 class RoleRepository extends Repository implements RoleRepositoryInterface
 {
     protected const string ENTITY_CLASS = Role::class;
-
-    private const int SYNC_ROWS_PER_CHUNK = 500;
 
     /**
      * Save a role, dispatching appropriate events.
@@ -202,10 +199,10 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
     /**
      * Sync permissions for a role, replacing all existing.
      *
-     * The DELETE and batched INSERT run through transaction(), so a mid-sync
-     * failure cannot leave a role half-synced. Inside a caller's transaction
-     * the sync runs in a savepoint: a failure undoes only the sync's own
-     * changes, and the caller can catch it and still commit its own work.
+     * The DELETE and batched INSERTs run through transaction() (see PivotSync),
+     * so a mid-sync failure cannot leave a role half-synced. Inside a caller's
+     * transaction the sync runs in a savepoint: a failure undoes only the sync's
+     * own changes, and the caller can catch it and still commit its own work.
      *
      * @param array<int> $permissionIds
      * @throws Throwable
@@ -214,39 +211,13 @@ class RoleRepository extends Repository implements RoleRepositoryInterface
         int $roleId,
         array $permissionIds,
     ): void {
-        $sync = function () use ($roleId, $permissionIds): void {
-            $this->connection->execute(
-                'DELETE FROM role_permissions WHERE role_id = ?',
-                [$roleId],
-            );
-
-            foreach (array_chunk($permissionIds, self::SYNC_ROWS_PER_CHUNK) as $chunk) {
-                $placeholders = implode(
-                    ', ',
-                    array_fill(0, count($chunk), '(?, ?)'),
-                );
-                $bindings = [];
-                foreach ($chunk as $permissionId) {
-                    $bindings[] = $roleId;
-                    $bindings[] = $permissionId;
-                }
-                $this->connection->execute(
-                    "INSERT INTO role_permissions (role_id, permission_id) VALUES $placeholders",
-                    $bindings,
-                );
-            }
-        };
-
-        // Same fallback as Repository::insertBatch(): a connection without
-        // transactions (only test doubles; both drivers have them) runs the
-        // statements directly, with no atomicity.
-        if ($this->connection instanceof TransactionInterface) {
-            $this->connection->transaction($sync);
-
-            return;
-        }
-
-        $sync();
+        new PivotSync($this->connection)->replace(
+            table: 'role_permissions',
+            ownerColumn: 'role_id',
+            ownerId: $roleId,
+            relatedColumn: 'permission_id',
+            relatedIds: $permissionIds,
+        );
     }
 
     /**

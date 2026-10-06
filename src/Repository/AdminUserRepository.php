@@ -64,21 +64,26 @@ class AdminUserRepository extends Repository implements AdminUserRepositoryInter
     /**
      * Sync roles for a user, replacing all existing.
      *
+     * The DELETE and batched INSERTs run through transaction() (see PivotSync),
+     * so a mid-sync failure leaves the user's previous roles in place. Inside a
+     * caller's transaction the sync runs in a savepoint: a failure undoes only
+     * the sync's own changes, and the caller can catch it and still commit its
+     * own work.
+     *
      * @param array<int> $roleIds
+     * @throws Throwable
      */
     public function syncRoles(
         int $userId,
         array $roleIds,
     ): void {
-        // Remove all existing roles for this user
-        $sql = 'DELETE FROM admin_user_roles WHERE user_id = ?';
-        $this->connection->execute($sql, [$userId]);
-
-        // Attach the new roles
-        foreach ($roleIds as $roleId) {
-            $sql = 'INSERT INTO admin_user_roles (user_id, role_id) VALUES (?, ?)';
-            $this->connection->execute($sql, [$userId, $roleId]);
-        }
+        new PivotSync($this->connection)->replace(
+            table: 'admin_user_roles',
+            ownerColumn: 'user_id',
+            ownerId: $userId,
+            relatedColumn: 'role_id',
+            relatedIds: $roleIds,
+        );
     }
 
     /**

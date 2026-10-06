@@ -13,8 +13,9 @@ use RuntimeException;
 use Throwable;
 
 /**
- * An in-memory SQLite connection with the permissions, roles and role_permissions tables, so the
- * PermissionRepository unit tests run its real SQL. Every statement is logged; failOn makes the first
+ * An in-memory SQLite connection with the permissions, roles, role_permissions and admin_user_roles tables,
+ * so the repository unit tests run their real SQL. admin_user_roles has the (user_id, role_id) unique index
+ * of the real pivot, so a duplicate role id fails as it does on MySQL and PostgreSQL. Every statement is logged; failOn makes the first
  * execute() whose SQL contains the given text throw, to prove a rollback.
  */
 class SqlitePermissionConnection implements ConnectionInterface, TransactionInterface
@@ -47,6 +48,36 @@ class SqlitePermissionConnection implements ConnectionInterface, TransactionInte
             'CREATE TABLE role_permissions (id INTEGER PRIMARY KEY AUTOINCREMENT, '
             . 'role_id INTEGER NOT NULL, permission_id INTEGER NOT NULL)',
         );
+        $this->pdo->exec(
+            'CREATE TABLE admin_user_roles (id INTEGER PRIMARY KEY AUTOINCREMENT, '
+            . 'user_id INTEGER NOT NULL, role_id INTEGER NOT NULL, UNIQUE (user_id, role_id))',
+        );
+    }
+
+    /**
+     * @return list<int> The role ids the admin user holds, sorted
+     */
+    public function roleIdsForUser(
+        int $userId,
+    ): array {
+        $statement = $this->pdo->prepare('SELECT role_id FROM admin_user_roles WHERE user_id = ? ORDER BY role_id');
+        $statement->execute([$userId]);
+
+        return array_map(intval(...), array_column($statement->fetchAll(), 'role_id'));
+    }
+
+    /**
+     * @return list<int> The permission ids the role holds, sorted
+     */
+    public function permissionIdsForRole(
+        int $roleId,
+    ): array {
+        $statement = $this->pdo->prepare(
+            'SELECT permission_id FROM role_permissions WHERE role_id = ? ORDER BY permission_id',
+        );
+        $statement->execute([$roleId]);
+
+        return array_map(intval(...), array_column($statement->fetchAll(), 'permission_id'));
     }
 
     /**

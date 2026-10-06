@@ -48,6 +48,10 @@ interface RoleRepositoryInterface extends RepositoryInterface
     /**
      * Sync permissions for a role, replacing all existing.
      *
+     * Atomic: the delete and the batched inserts run in one transaction, so a role is never left half-synced.
+     * Inside a caller's transaction the sync runs in a savepoint; a failure undoes only the sync's changes, and
+     * the caller can catch it and still commit.
+     *
      * @param array<int> $permissionIds
      * @throws Throwable
      */
