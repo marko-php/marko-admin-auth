@@ -24,6 +24,13 @@ describe('AdminAuth Package Composer Dependencies', function (): void {
             ->and($composer['require']['marko/config'])->toBe('self.version');
     });
 
+    it('requires marko/routing in composer.json', function (): void {
+        $composer = json_decode(file_get_contents(dirname(__DIR__) . '/composer.json'), true);
+
+        expect($composer['require'])->toHaveKey('marko/routing')
+            ->and($composer['require']['marko/routing'])->toBe('self.version');
+    });
+
     it('has no path repositories (uses self.version for Packagist publishing)', function (): void {
         $composerPath = dirname(__DIR__) . '/composer.json';
         $composer = json_decode(file_get_contents($composerPath), true);

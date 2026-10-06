@@ -9,7 +9,8 @@
         "marko/admin": "self.version",
         "marko/authentication": "self.version",
         "marko/database": "self.version",
-        "marko/config": "self.version"
+        "marko/config": "self.version",
+        "marko/routing": "self.version"
     },
     "require-dev": {
         "pestphp/pest": "^4.0",

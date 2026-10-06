@@ -13,9 +13,11 @@ use Marko\AdminAuth\Middleware\AdminAuthMiddleware;
 use Marko\AdminAuth\PermissionRegistry;
 use Marko\Authentication\AuthenticatableInterface;
 use Marko\Authentication\Contracts\GuardInterface;
+use Marko\Routing\Exceptions\HttpException;
 use Marko\Routing\Http\Request;
 use Marko\Routing\Http\Response;
 use Marko\Testing\Fake\FakeGuard;
+use RuntimeException;
 
 // Test controller classes for attribute reflection
 class TestControllerWithPermission
@@ -98,16 +100,30 @@ function createSuccessNext(): callable
     return fn (Request $r): Response => new Response(body: 'success', statusCode: 200);
 }
 
-it('returns 401 when user is not authenticated', function (): void {
+function captureHttpException(
+    AdminAuthMiddleware $middleware,
+    Request $request,
+): HttpException {
+    try {
+        $middleware->handle($request, createSuccessNext());
+    } catch (HttpException $exception) {
+        return $exception;
+    }
+
+    throw new RuntimeException('Expected AdminAuthMiddleware to throw an HttpException.');
+}
+
+it('throws a 401 HttpException for an unauthenticated request that wants JSON', function (): void {
     $guard = new FakeGuard(name: 'admin', attemptResult: false); // No user set
     $middleware = createMiddleware(guard: $guard);
 
     $request = (new Request(server: ['HTTP_ACCEPT' => 'application/json']))
         ->withRoute(TestControllerWithPermission::class, 'create');
 
-    $response = $middleware->handle($request, createSuccessNext());
+    $exception = captureHttpException($middleware, $request);
 
-    expect($response->statusCode())->toBe(401);
+    expect($exception->getStatusCode())->toBe(401)
+        ->and($exception->getMessage())->toBe('Unauthorized.');
 });
 
 it('passes through when user is authenticated and no RequiresPermission attribute present', function (): void {
@@ -148,7 +164,7 @@ it('passes through when user has the required permission', function (): void {
         ->and($response->body())->toBe('success');
 });
 
-it('returns 403 when user lacks the required permission', function (): void {
+it('throws a 403 HttpException when the user lacks the required permission', function (): void {
     $guard = new FakeGuard(name: 'admin', attemptResult: false);
     $editorRole = new Role();
     $editorRole->id = 1;
@@ -166,10 +182,10 @@ it('returns 403 when user lacks the required permission', function (): void {
 
     $request = (new Request())->withRoute(TestControllerWithPermission::class, 'create');
 
-    $response = $middleware->handle($request, createSuccessNext());
+    $exception = captureHttpException($middleware, $request);
 
-    expect($response->statusCode())->toBe(403)
-        ->and($response->body())->toBe('Forbidden');
+    expect($exception->getStatusCode())->toBe(403)
+        ->and($exception->getMessage())->toBe('Forbidden.');
 });
 
 it('passes through for super admin users regardless of permission', function (): void {
@@ -196,7 +212,7 @@ it('passes through for super admin users regardless of permission', function ():
         ->and($response->body())->toBe('success');
 });
 
-it('redirects to admin login for unauthenticated web requests', function (): void {
+it('redirects an unauthenticated browser request to the admin login', function (): void {
     $guard = new FakeGuard(name: 'admin', attemptResult: false); // No user
     $adminConfig = new StubAdminConfig(routePrefix: '/admin');
 
@@ -218,27 +234,23 @@ it('redirects to admin login for unauthenticated web requests', function (): voi
         ->and($response->headers()['Location'])->toBe('/admin/login');
 });
 
-it('returns JSON 401 for unauthenticated API requests', function (): void {
+it('throws a 401 HttpException for an unauthenticated request asking for a +json type', function (): void {
     $guard = new FakeGuard(name: 'admin', attemptResult: false); // No user
 
     $middleware = createMiddleware(guard: $guard);
 
-    // API request: has "Accept: application/json" header
     $request = (new Request(server: [
         'REQUEST_METHOD' => 'POST',
         'REQUEST_URI' => '/admin/api/posts',
-        'HTTP_ACCEPT' => 'application/json',
+        'HTTP_ACCEPT' => 'application/vnd.api+json',
     ]))->withRoute(TestControllerWithPermission::class, 'create');
 
-    $response = $middleware->handle($request, createSuccessNext());
+    $exception = captureHttpException($middleware, $request);
 
-    expect($response->statusCode())->toBe(401)
-        ->and($response->headers())->toHaveKey('Content-Type')
-        ->and($response->headers()['Content-Type'])->toBe('application/json')
-        ->and(json_decode($response->body(), true))->toBe(['error' => 'Unauthorized']);
+    expect($exception->getStatusCode())->toBe(401);
 });
 
-it('returns JSON 403 for unauthorized API requests', function (): void {
+it('keeps the required permission key out of the 403 message and puts it in the context', function (): void {
     $guard = new FakeGuard(name: 'admin', attemptResult: false);
     $viewerRole = new Role();
     $viewerRole->id = 1;
@@ -261,12 +273,12 @@ it('returns JSON 403 for unauthorized API requests', function (): void {
         'HTTP_ACCEPT' => 'application/json',
     ]))->withRoute(TestControllerWithPermission::class, 'create');
 
-    $response = $middleware->handle($request, createSuccessNext());
+    $exception = captureHttpException($middleware, $request);
 
-    expect($response->statusCode())->toBe(403)
-        ->and($response->headers())->toHaveKey('Content-Type')
-        ->and($response->headers()['Content-Type'])->toBe('application/json')
-        ->and(json_decode($response->body(), true))->toBe(['error' => 'Forbidden']);
+    expect($exception->getStatusCode())->toBe(403)
+        ->and($exception->getMessage())->not->toContain('posts.create')
+        ->and($exception->getResponseData())->toBe(['message' => 'Forbidden.'])
+        ->and($exception->getContext())->toContain('posts.create');
 });
 
 it('supports wildcard permission matching via user roles', function (): void {
@@ -322,9 +334,7 @@ it('denies a low-privilege admin with a 403 on a RequiresPermission route they l
 
     $request = (new Request())->withRoute(TestControllerWithPermission::class, 'create');
 
-    $response = $middleware->handle($request, createSuccessNext());
-
-    expect($response->statusCode())->toBe(403);
+    expect(captureHttpException($middleware, $request)->getStatusCode())->toBe(403);
 });
 
 it('allows a properly-permissioned admin on a RequiresPermission route', function (): void {
@@ -363,10 +373,8 @@ it('reads the required permission from the route controller and action on the re
     // Route context attached via withRoute — NOT via constructor params
     $request = (new Request())->withRoute(TestControllerWithPermission::class, 'create');
 
-    $response = $middleware->handle($request, createSuccessNext());
-
     // Permission must have been read from the request's route context
-    expect($response->statusCode())->toBe(403);
+    expect(captureHttpException($middleware, $request)->getStatusCode())->toBe(403);
 });
 
 it('requires no permission when the request carries no route context (controller/action null)', function (): void {
@@ -385,21 +393,19 @@ it('requires no permission when the request carries no route context (controller
         ->and($response->body())->toBe('success');
 });
 
-it('returns the unauthorized response when the guard reports no authenticated user', function (): void {
+it('throws the 401 for a JSON request on a route without a permission requirement', function (): void {
     $guard = new FakeGuard(name: 'admin', attemptResult: false); // No user set
 
     $middleware = createMiddleware(guard: $guard);
 
     $request = (new Request(server: ['HTTP_ACCEPT' => 'application/json']))
-        ->withRoute(TestControllerWithPermission::class, 'create');
+        ->withRoute(TestControllerWithoutPermission::class, 'index');
 
-    $response = $middleware->handle($request, createSuccessNext());
-
-    expect($response->statusCode())->toBe(401);
+    expect(captureHttpException($middleware, $request)->getStatusCode())->toBe(401);
 });
 
 it(
-    'returns a 403 forbidden response when the authenticated user is not an admin user on a gated route',
+    'throws a 403 HttpException when the authenticated user is not an admin user on a gated route',
     function (): void {
         $guard = new FakeGuard(name: 'admin', attemptResult: false);
 
@@ -439,8 +445,10 @@ it(
 
         $request = (new Request())->withRoute(TestControllerWithPermission::class, 'create');
 
-        $response = $middleware->handle($request, createSuccessNext());
+        $exception = captureHttpException($middleware, $request);
 
-        expect($response->statusCode())->toBe(403);
+        expect($exception->getStatusCode())->toBe(403)
+            ->and($exception->getMessage())->toBe('Forbidden.')
+            ->and($exception->getContext())->toContain('not an admin user');
     },
 );
