@@ -6,7 +6,10 @@ Admin authentication and role-based authorization---manages admin users, roles, 
 
 ```bash
 composer require marko/admin-auth
+marko db:migrate
 ```
+
+`db:migrate` creates the admin-auth tables from the package's entities.
 
 ## Quick Example
 

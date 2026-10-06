@@ -10,6 +10,10 @@ use Marko\AdminAuth\Entity\PermissionInterface;
 use Marko\Database\Attributes\Column;
 use Marko\Database\Attributes\Table;
 use Marko\Database\Entity\Entity;
+use Marko\Database\Entity\EntityMetadataFactory;
+use Marko\Database\Entity\SchemaBuilder;
+use Marko\Database\Schema\Index;
+use Marko\Database\Schema\IndexType;
 use ReflectionClass;
 
 it('creates Permission entity with id, key, label, group, createdAt', function (): void {
@@ -140,4 +144,12 @@ it('returns null for createdAt when not set', function (): void {
     $permission->group = 'Posts';
 
     expect($permission->getCreatedAt())->toBeNull();
+});
+
+it('indexes the permissions group column', function (): void {
+    $table = new SchemaBuilder()->build(new EntityMetadataFactory()->parse(Permission::class));
+    $index = array_find($table->indexes, fn (Index $index): bool => $index->name === 'idx_permissions_group');
+
+    expect($index?->columns)->toBe(['group'])
+        ->and($index?->type)->toBe(IndexType::Btree);
 });

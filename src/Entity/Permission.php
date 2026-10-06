@@ -7,10 +7,12 @@ namespace Marko\AdminAuth\Entity;
 use DateMalformedStringException;
 use DateTimeImmutable;
 use Marko\Database\Attributes\Column;
+use Marko\Database\Attributes\Index;
 use Marko\Database\Attributes\Table;
 use Marko\Database\Entity\Entity;
 
 #[Table('permissions')]
+#[Index('idx_permissions_group', ['group'])]
 class Permission extends Entity implements PermissionInterface
 {
     #[Column(primaryKey: true, autoIncrement: true)]

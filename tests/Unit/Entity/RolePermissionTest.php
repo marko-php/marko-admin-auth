@@ -10,6 +10,10 @@ use Marko\Database\Attributes\Column;
 use Marko\Database\Attributes\Index;
 use Marko\Database\Attributes\Table;
 use Marko\Database\Entity\Entity;
+use Marko\Database\Entity\EntityMetadataFactory;
+use Marko\Database\Entity\SchemaBuilder;
+use Marko\Database\Schema\Index as SchemaIndex;
+use Marko\Database\Schema\IndexType;
 use ReflectionClass;
 
 it('creates RolePermission junction entity with roleId and permissionId', function (): void {
@@ -84,4 +88,15 @@ it('exposes getter methods via RolePermissionInterface', function (): void {
 
     expect($rolePermission->getRoleId())->toBe(5)
         ->and($rolePermission->getPermissionId())->toBe(10);
+});
+
+it('indexes permission_id for cascading permission deletes', function (): void {
+    $table = new SchemaBuilder()->build(new EntityMetadataFactory()->parse(RolePermission::class));
+    $index = array_find(
+        $table->indexes,
+        fn (SchemaIndex $index): bool => $index->name === 'idx_role_permissions_permission_id',
+    );
+
+    expect($index?->columns)->toBe(['permission_id'])
+        ->and($index?->type)->toBe(IndexType::Btree);
 });

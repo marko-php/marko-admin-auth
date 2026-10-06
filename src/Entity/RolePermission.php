@@ -11,6 +11,7 @@ use Marko\Database\Entity\Entity;
 
 #[Table('role_permissions')]
 #[Index('idx_role_permissions_unique', ['role_id', 'permission_id'], unique: true)]
+#[Index('idx_role_permissions_permission_id', ['permission_id'])]
 class RolePermission extends Entity implements RolePermissionInterface
 {
     #[Column(primaryKey: true, autoIncrement: true)]
